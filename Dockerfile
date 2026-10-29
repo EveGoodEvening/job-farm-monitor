@@ -2,9 +2,16 @@
 # Build: docker build -t job-farm-monitor .
 # Run:   docker run -e READ_TOKEN=.. -e WRITE_TOKENS=host:tok -v "$PWD/tmpdata:/data" -p 127.0.0.1:8080:8080 job-farm-monitor
 
-FROM node:24-alpine AS build
+# Multi-architecture digest: update deliberately with .nvmrc and package.json.
+# Node's bundled trust store and Alpine's system CA store are separate.
+FROM node:24.22.1-alpine3.24@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS base
+RUN apk add --no-cache ca-certificates=20261020-r0 \
+    && npm install --global npm@12.2.1 \
+    && npm cache clean --force
+
+FROM base AS build
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 COPY packages/core/package.json packages/core/
 COPY packages/server/package.json packages/server/
 COPY packages/web/package.json packages/web/
@@ -16,14 +23,14 @@ COPY packages/server packages/server
 COPY packages/web packages/web
 RUN npm run build
 
-FROM node:24-alpine
+FROM base AS runtime
 WORKDIR /app
 # Railway sets RAILWAY_VOLUME_MOUNT_PATH to the attached volume at runtime;
 # /data is the default for plain `docker run -v ...:/data`.
 ENV NODE_ENV=production \
     PORT=8080 \
     RAILWAY_VOLUME_MOUNT_PATH=/data
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 COPY packages/core/package.json packages/core/
 COPY packages/server/package.json packages/server/
 COPY packages/web/package.json packages/web/

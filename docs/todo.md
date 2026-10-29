@@ -12,8 +12,9 @@
 - 固定常量：进展服务端保留 10 条、卡片显示 4 条；stale 阈值 10 分钟；events 去重元数据清理阈值 7 天（非定时 TTL）；ended 默认显示 1 小时、清理阈值 24 小时；乱序宽限 5 秒；迟到 60 秒标“延迟送达”；每 500 次 revision 顺带清理一次；ingest 单批 ≤100 条；标题/摘要 ≤120 字、最后回复 ≤300 字；PreToolUse 同会话 2 秒节流；轮询 3 秒。
 - 前端 Preact 11 + @preact/signals + Vite 8，统一轮询 `GET /api/state?since=<rev>`，304 即跳过，页面不可见时暂停；中英双语切换存 localStorage。
 - 云端存摘要与会话元数据，events 只保留去重元数据；上报前白名单裁剪工具输入。`JFM_REDACT=1` 清空内容但保留工具名、状态、项目 basename 与会话/主机/model 等标识。
-- 版本：TypeScript 5.9.x（不用 7.x）、hono 4.13.14、@hono/node-server 2.1.5、@libsql/client 0.18.0、preact 11.1.0、@preact/signals 2.11.4、vite 8.3.5、wrangler 4.155.0、vitest 5.0.5、@cloudflare/vitest-pool-workers 0.23.0、zod 4.x；Node engines `^24`。
+- 版本：TypeScript 5.9.x（不用 7.x）、hono 4.13.14、@hono/node-server 2.1.5、@libsql/client 0.18.0、preact 11.1.0、@preact/signals 2.11.4、vite 8.3.5、wrangler 4.155.0、vitest 5.0.5、@cloudflare/vitest-plugin 1.4.10、zod 4.x；本地 `.nvmrc` 固定 Node 24.22.1，根 engines `>=24.22.1 <25`，npm / packageManager 固定 12.2.1；Vercel 的 server engines 用 `24.x`（平台只允许选择 major，不能锁定 patch）。历史 Implementation tasks 保留当时记录，当前部署以 README 为准。
 - Cloudflare 用 Durable Object SQLite 而非 D1；DO 内 `storage.sql` 同步调用，`ingest` 以 DO 单线程 + Store 内部异步互斥保证原子。
+- eMudhra/emSign 安全更新：必须修补实际 TLS 验证器，不能只升级 SDK 或移除单个 root（交叉签名可形成替代链）。Docker 固定 Node 24.22.1 Alpine 3.24 tag + digest、`ca-certificates=20261020-r0`、npm 12.2.1；后续安全更新要刷新 digest 并重建/重部署。Vercel 部署后检查 function 实际 Node 版本和 TLS 路径，不以 build 日志为凭；Cloudflare 托管运行时独立于构建 Node，`compatibility_date` 不是安全版本锁。每台上报机的 curl/系统 CA 与 OMP 自身运行时也要分别更新并重启，禁止关闭 TLS 校验。Python/uv 不属于本仓库运行时；其他服务须独立更新解释器、uv、pip/certifi 和 CA。操作与官方来源见 [README](../README.md#tls-security-updates-emudhraemsign)。
 - 提交信息不得包含 AI 署名行（`~/.claude/settings.json` 的 PreToolUse hook 会拦截）。只在用户要求时提交。
 
 ## Implementation tasks

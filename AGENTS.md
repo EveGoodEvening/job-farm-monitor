@@ -25,7 +25,7 @@ deploys to Cloudflare Workers (Durable Object SQLite), Railway (Node 24 +
 ## Commands
 
 ```sh
-npm install                 # one install for all workspaces
+npm ci                      # reproducible install for all workspaces
 npm run build               # core -> server -> web
 npm run typecheck           # all workspaces (core also runs a "pure" check without Node types)
 npm run lint                # eslint flat config (typescript-eslint recommended)
@@ -36,8 +36,9 @@ npm run dev:node | dev:web | dev:cf
 
 ## Conventions
 
-- Node `^24`, TypeScript 5.9.x (not 7.x), ESM everywhere. Relative imports in
-  core/server use `.js` extensions (NodeNext). Web uses bundler resolution.
+- Node 24.22.1 locally (`.nvmrc`), security floor `>=24.22.1 <25`; npm 12.2.1.
+  TypeScript 5.9.x (not 7.x), ESM everywhere. Relative imports in core/server
+  use `.js` extensions (NodeNext). Web uses bundler resolution.
 - Exact dependency pins (no `^`). Keep versions in sync with `docs/todo.md`
   "Locked decisions" unless a Lesson below says otherwise.
 - `@jfm/core` "." must never import `node:*` or `@libsql/client`
@@ -137,3 +138,12 @@ background:
 ### Rename to job-farm-monitor (2026-10-29)
 
 - `local/install.sh` migrates pre-rename installs: `job-farm-mon` config/state dirs move to `job-farm-monitor` before `write_config` (new dirs win if both exist; queued outbox files are still moved over), and the old omp extension `job-farm-mon.ts` is removed, because oh-my-pi would otherwise load both and double-report. A flusher that is still running keeps working in the moved outbox, since it has `cd`'d into it, so only a lock whose owner is dead gets dropped.
+
+### TLS and deployment pins (2026-10-29)
+
+- eMudhra remediation needs a patched verifier, not just an SDK or root removal: cross-signed intermediates provide alternate trust chains. Node 24.22.1 rejects the compromised keys; both `fetch` and `https` in the built image rejected all 14 advisory test chains with `CERT_REVOKED` while positive controls worked.
+- Docker shares one base across build/runtime: `node:24.22.1-alpine3.24` plus the multi-architecture digest in `Dockerfile`, `ca-certificates=20261020-r0`, and npm 12.2.1. The official base ships npm 11.19.1, so explicitly upgrade it before `npm ci` to enforce npm 12's `allowScripts`. Refresh tag, digest, CA pin, `.nvmrc`, and engine requirements deliberately for future updates.
+- Vercel supports only major-version selection (`packages/server/package.json` uses `24.x`), not an exact function patch pin. Root engines enforce the build security floor; explicit `npx --yes npm@12.2.1` commands select the package manager. Verify the live function separately; `/api/health` is not a TLS patch report.
+- Workers Builds honors root `.nvmrc` and exact `packageManager`; `engines.npm` alone does not select npm. Use `SKIP_DEPENDENCY_INSTALL=1` and `npm ci` for lockfile installation. Workers' `compatibility_date` selects API behavior, not a runtime security version.
+- This repository has no Python/uv runtime. Reporter curl/system CA and OMP's host Node/Bun must be patched separately. Never disable TLS validation or assume a browser test proves another runtime's trust path.
+- Docker's automatically assigned published port can change on restart (`-p 127.0.0.1::8080`). Re-read `docker port` before the post-restart persistence request; reusing the old port produces a false health failure.

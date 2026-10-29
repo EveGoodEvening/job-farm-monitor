@@ -66,15 +66,96 @@ Contents: [Architecture](#architecture) ·
 
 ## Deploy
 
-You need Node 24 and one `npm install` at the repo root:
+Use Node **24.22.1** (`.nvmrc`) and npm **12.2.1** at the repo root.
+Root `engines.node` accepts `>=24.22.1 <25` (security floor within Node 24);
+the server's `24.x` selects Vercel's managed major, not an exact patch:
 
 ```sh
 git clone <this repo> job-farm-monitor && cd job-farm-monitor
-npm install
+nvm install && nvm use
+npm install --global npm@12.2.1
+npm ci
 ```
+`npm ci` consumes the committed lockfile; use `npm install` only when deliberately
+updating it. `.npmrc` enforces the engine requirements and saves exact dependency
+versions. npm 12 also enforces the version-specific `allowScripts` policy:
+esbuild/workerd are approved; the optional macOS fsevents rebuild is denied.
+Review new install-script versions before approving them.
+
 
 Pick **one** platform (2a, 2b or 2c). Each serves both the API and the dashboard
 from one origin; that origin is your `JFM_ENDPOINT`.
+
+### TLS security updates (eMudhra/emSign)
+
+The [eMudhra compromise advisory](https://blog.cloudflare.com/emudhra-certificate-compromise/)
+requires updating the **actual certificate verifier**, not just an SDK or lockfile.
+[Node 24.22.1](https://nodejs.org/en/blog/release/v24.22.1) rejects chains
+containing compromised public keys. Removing one root certificate alone is not
+sufficient: an alternate/cross-signed chain can still reach another trusted root.
+Update custom/extra CA bundles too; never restore affected trust or bypass TLS
+verification (`curl -k`, `NODE_TLS_REJECT_UNAUTHORIZED=0`, or `strict-ssl=false`).
+
+- **Local/build tooling:** install the versions above before `npm ci`; restart
+  long-running processes after updating their runtime. A dependency update alone
+  does not patch Node's TLS implementation.
+- **Deployments:** rebuild and redeploy after runtime/dependency changes. Refresh
+  the Docker base tag **and digest** for future security releases: a digest is
+  immutable, so `docker build --pull` cannot update an old pinned digest. Check
+  the running container/function, not only the build log. `/api/health` reports
+  application health/driver, not TLS patch status.
+- **Each reporting machine:** update curl's TLS backend and its effective OS/CA
+  trust store through the OS vendor. The shell reporter uses curl; the OMP
+  extension uses its host process's `fetch`. Upgrade/restart OMP's own Node/Bun
+  runtime independently (including bundled runtimes); this repo's `.nvmrc` does
+  not change an already-installed agent. Audit `NODE_EXTRA_CA_CERTS`,
+  `SSL_CERT_FILE`, `SSL_CERT_DIR`, and `CURL_CA_BUNDLE` where used.
+- **Other Python services only:** this repository is Node/TypeScript and needs
+  no Python/uv configuration. Independently update
+  [uv to 0.13.5 or a newer fixed release](https://github.com/astral-sh/uv/releases/tag/0.13.5)
+  (uv's own verifier), and the Python interpreter to
+  [3.15.2](https://www.python.org/downloads/release/python-3152/),
+  [3.14.10](https://www.python.org/downloads/release/python-31410/),
+  [3.13.18](https://www.python.org/downloads/release/python-31318/),
+  [3.12.16](https://www.python.org/downloads/release/python-31216/), or
+  [3.11.18](https://www.python.org/downloads/release/python-31118/)
+  (or a vendor build carrying the same compromised-key rejection). Update
+  [certifi](https://pypi.org/project/certifi/) to at least 2026.10.19, pip to
+  **26.2.2 or newer** (its separately vendored certificate bundle), and system/custom CA stores as
+  applicable. Upgrading uv alone does not replace existing interpreters or
+  virtual environments; install the fixed interpreter, recreate/repoint each
+  environment, refresh its locked dependencies, and restart/redeploy services.
+  Follow the [Python security team's guidance](https://discuss.python.org/t/information-for-python-users-regarding-emudhra-emsign-ca-certificate-security-incident/109576)
+  for securely bootstrapping updates from an affected environment.
+
+For each deployed/client path, follow the advisory's linked
+[non-browser test instructions](https://emudhra.we-have-a-problem.com/) using
+the **same runtime, TLS library, environment and CA configuration** as the
+application. Confirm affected chains are rejected and normal HTTPS still works.
+A browser/curl result does not establish that Node, OMP, Python, or a managed
+function uses the same verifier. These are operator steps, not a claim that any
+deployment or reporting machine has been patched or tested.
+
+Example manual probes (run in the relevant machine/container; use a private
+function diagnostic for managed functions):
+
+```sh
+node --version; npm --version; curl --version
+curl --max-time 15 https://probe-emudhra.we-have-a-problem.com/
+node --input-type=module -e 'const r = await fetch("https://probe-emudhra.we-have-a-problem.com/", {signal: AbortSignal.timeout(15000)}); console.log(r.status, await r.text());'
+for chain in dv-g3b dv-g3b-aaa dv-g3b-noct dv-g3b-aaa-noct; do
+  url="https://${chain}-emudhra.we-have-a-problem.com/"
+  curl --max-time 15 -I "$url"
+  node --input-type=module -e 'try { const r = await fetch(process.argv[1], {signal: AbortSignal.timeout(15000)}); console.error("ACCEPTED", r.status); } catch (e) { console.error(e.cause?.code ?? e.name, e.cause?.message ?? e.message); }' "$url"
+done
+```
+
+All four affected endpoints should fail with an explicit certificate validation
+error (curl normally exits 60); an HTTP response means the chain was accepted.
+DNS failures, timeouts, and generic connection errors are **inconclusive**, not
+a pass. Also request a known-good HTTPS endpoint through the same client and
+confirm it succeeds. These four probes cover direct/AAA cross-signed and No CT
+variants, not every affected intermediate in the linked full test suite.
 
 ### 1. Generate tokens
 
@@ -114,10 +195,27 @@ npm run deploy:cf                                       # builds core + web, the
   `{"ok":true,"version":"0.1.0","driver":"do-sqlite"}`.
 - The Worker name, DO binding and assets are in `packages/server/wrangler.jsonc`.
   Secrets are never put in `vars`.
+- Local Node runs npm/Wrangler/builds; production Workers use Cloudflare's
+  managed runtime, not `.nvmrc` or the Docker image. The configured
+  `compatibility_date: "2026-10-29"` selects API behavior, **not a security patch
+  version** ([compatibility-date policy](https://developers.cloudflare.com/workers/configuration/compatibility-dates/)).
+  Keep local tooling patched and redeploy changed code/dependencies; confirm
+  managed-runtime mitigation with Cloudflare and validate the Worker's actual
+  outbound TLS path rather than inferring protection from that date.
+  For hosted Workers Builds, use the repo root as the build root. The checked-in
+  `.nvmrc` and `packageManager` select Node 24.22.1 and npm 12.2.1
+  ([build-image controls](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/)).
+  Set `SKIP_DEPENDENCY_INSTALL=1`, build command `npm ci`, and deploy command
+  `npm run deploy:cf` so dependency installation consumes the lockfile. Remove
+  stale `NODE_VERSION` overrides and review Cloudflare's
+  [patched build-image guidance](https://developers.cloudflare.com/changelog/post/2026-10-23-build-images-emudhra-certificates/),
+  including custom CA/`NODE_OPTIONS` overrides. A patched build image is still
+  not evidence about the deployed runtime.
 
 ### 2b. Railway (Docker + volume)
 
-The root `Dockerfile` (node:24-alpine, multi-stage) runs
+The root `Dockerfile` (`node:24.22.1-alpine3.24`, multi-stage, pinned to
+`sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53`) runs
 `packages/server/dist/entry.node.js`, which stores data with `node:sqlite` and
 serves the dashboard. `railway.json` selects the Dockerfile and the
 `/api/health` health check.
@@ -149,6 +247,21 @@ docker run --rm -e READ_TOKEN=r -e WRITE_TOKENS=dev:w -v "$PWD/tmpdata:/data" \
   -p 127.0.0.1:8080:8080 job-farm-monitor
 ```
 
+[Railway's Docker builder](https://docs.railway.com/builds/dockerfiles) uses the
+Dockerfile's base image for both build and runtime; `.nvmrc` and
+`RAILPACK_NODE_VERSION` do not override a `FROM` instruction. Confirm the build
+log says `Using detected Dockerfile!`, rebuild/redeploy the updated image, then
+check `node --version`, `npm --version`, and the actual outbound TLS verifier in
+the running service. The Dockerfile is the source of truth for the exact image
+digest. If deliberately switching to [Railpack](https://railpack.com/languages/node/),
+set `RAILPACK_NODE_VERSION=24.22.1` (highest-priority Node override), retain
+`npm@12.2.1` in `packageManager`, and recheck generated build/runtime versions
+and CA stores; this repository selects Docker, not Railpack.
+The shared Docker base explicitly installs `ca-certificates=20261020-r0`
+([Alpine package](https://pkgs.alpinelinux.org/package/v3.24/main/x86_64/ca-certificates))
+and npm 12.2.1 for both stages; the OS CA bundle and Node's verifier/key
+blocklist are separate updates.
+
 ### 2c. Vercel + Turso
 
 On Vercel the API runs as one Node function backed by a Turso (libSQL)
@@ -170,8 +283,21 @@ static files.
    root directory in the Build Step" enabled: the build runs at the repo root.
 3. Leave framework/install/build settings to `packages/server/vercel.json`:
    - `framework: "hono"`
-   - `installCommand: cd ../.. && npm ci`
-   - `buildCommand: cd ../.. && npm run build && mkdir -p packages/server/public && cp -r packages/web/dist/. packages/server/public/`
+   - `installCommand: cd ../.. && npx --yes npm@12.2.1 ci`
+   - `buildCommand: cd ../.. && npx --yes npm@12.2.1 run build && mkdir -p packages/server/public && cp -r packages/web/dist/. packages/server/public/`
+   - Select **Node.js 24.x** in Project Settings. Vercel supports only major
+     versions and rolls out patch updates itself; an exact local `.nvmrc` or
+     `engines` requirement is not a managed-runtime patch pin
+     ([official version policy](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions)).
+     Redeploy after updates and verify the deployed **function's**
+     `process.version` and outbound TLS behavior with platform logs/a temporary
+     private diagnostic, then remove that diagnostic. Build-time `node -v`
+     alone does not establish the function's patch level. Require 24.22.1 or a
+     later fixed 24.x/vendor-equivalent verifier; if unavailable, obtain
+     confirmation from Vercel rather than weakening TLS. Ensure the install
+     environment actually invokes npm 12.2.1 via the explicit `npx` commands
+     above, rather than relying on `packageManager` or a default builder npm
+     ([package-manager policy](https://vercel.com/docs/package-managers)).
 4. Environment variables (Production, and Preview if you use it):
    `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `READ_TOKEN`, `WRITE_TOKENS`.
 5. Deploy: push to the connected Git branch, or `vercel deploy --prod` from the
@@ -185,7 +311,7 @@ source imports `hono`, and its file tracing drops the npm-workspace symlink
 tsup bundle `dist/entry.vercel.js`, which has `@jfm/core` inlined. That is also
 why the build must run (`npm run build`) before Vercel traces the function.
 Do not run `npx vercel build` inside your working copy: its install command
-(`npm ci`) replaces the repo's `node_modules`. Use a scratch copy.
+(`npx --yes npm@12.2.1 ci`) replaces the repo's `node_modules`. Use a scratch copy.
 
 ### 3. Install the reporter on each machine
 
@@ -328,7 +454,9 @@ first days.
 ## Development
 
 ```sh
-npm install
+nvm install && nvm use   # .nvmrc: 24.22.1
+npm install --global npm@12.2.1
+npm ci
 npm run build          # core -> server -> web
 npm run typecheck && npm run lint && npm test
 ```

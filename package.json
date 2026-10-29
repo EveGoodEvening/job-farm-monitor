@@ -4,8 +4,10 @@
   "private": true,
   "description": "Multi-host dashboard for coding agent session states (Claude Code, Codex CLI, oh-my-pi)",
   "type": "module",
+  "packageManager": "npm@12.2.1",
   "engines": {
-    "node": "^24"
+    "node": ">=24.22.1 <25",
+    "npm": "12.2.1"
   },
   "workspaces": [
     "packages/*",
@@ -37,6 +39,7 @@
   "allowScripts": {
     "esbuild@0.28.2": true,
     "esbuild@0.25.12": true,
+    "fsevents@2.3.3": false,
     "workerd@1.20261023.1": true
   }
 }
