@@ -1,4 +1,4 @@
-# job-farm-mon 实施计划
+# job-farm-monitor 实施计划
 
 - 日期：2026-10-29
 - 状态：需求与决策已全部确认，可直接实施
@@ -6,7 +6,7 @@
 
 ## Goal
 
-做一个远程仪表盘 job-farm-mon，一眼看清多台机器上每个 coding agent 当前处于 **进行中 / 等待授权 / 等待回答 / 完成 / 出错 / 已结束** 哪种状态。信号由各 agent 自己的 hook 或扩展自动上报到自己部署的 API；进程被杀等无法上报的情况，靠“最后一次进展距今多久”来暴露。
+做一个远程仪表盘 job-farm-monitor，一眼看清多台机器上每个 coding agent 当前处于 **进行中 / 等待授权 / 等待回答 / 完成 / 出错 / 已结束** 哪种状态。信号由各 agent 自己的 hook 或扩展自动上报到自己部署的 API；进程被杀等无法上报的情况，靠“最后一次进展距今多久”来暴露。
 
 成功标准：
 
@@ -43,7 +43,7 @@
 
 ## Relevant codebase context
 
-- 仓库 `job-farm-mon` 为空，无提交，当前分支 master；首个提交前改名为 main。
+- 仓库 `job-farm-monitor` 为空，无提交，当前分支 master；首个提交前改名为 main。
 - 本机（kvm16188）已安装：Claude Code 2.1.312、Codex CLI 0.165.0（`features.hooks = true`，hooks 在 `~/.codex/hooks.json`，改动后需在 Codex 里 `/hooks` 重新信任 hash）、oh-my-pi 18.13.3（`~/.omp/agent/extensions/*.ts` 自动发现，subagent 会话会重新绑定扩展工厂）。`~/.claude`、`~/.codex`、`~/.omp` 各自都是 git 仓库，已有 heavy-gate、提交署名拦截、herdr 等 hook，安装脚本必须合并而不是覆盖。
 - 用户运行在 herdr 0.9.5 里。它用 OSC 7501 加自带集成脚本在本地算出 idle/working/blocked/done，`herdr agent list` 输出 JSON，但只有粗状态，没有进展行和最后回复，且只覆盖 herdr 内的 pane。它的 OMP 集成脚本 `~/.omp/agent/extensions/herdr-omp-agent-state.ts` 是 OMP 扩展事件映射的现成参考。
 - 已核实的 hook 能力：
@@ -60,7 +60,7 @@
 
 ```
 [Claude Code hooks]──┐
-[Codex hooks.json]───┼─> jfm-emit (sh) ─> ~/.local/state/job-farm-mon/outbox/*.json ─┐
+[Codex hooks.json]───┼─> jfm-emit (sh) ─> ~/.local/state/job-farm-monitor/outbox/*.json ─┐
 [omp extension .ts]──┘ (进程内 fetch，内存重试)                                          │ 后台 curl，批量 POST
                                                                                        ▼
                                    POST /api/ingest  (Bearer 写token，host 由 token 决定)
@@ -140,7 +140,7 @@
 
 - 写：`Authorization: Bearer <token>`；环境变量 `WRITE_TOKENS="kvm16188:tokA,macbook:tokB"`，host 标签来自匹配到的 token，payload 里的 hostname 只作参考，机器之间无法冒名。常量时间比较。
 - 读：`READ_TOKEN`；`POST /api/login {token}` 下发 cookie `jfm_s=<expiry>.<hmac>`，HMAC 密钥由 `READ_TOKEN` 派生，换读 token 即全体登出；`GET /api/me` 供前端判断登录态；`POST /api/logout`。
-- token 用 `openssl rand -hex 24` 生成；本地配置文件 `~/.config/job-farm-mon/config` 权限 0600，不进任何 git 仓库。
+- token 用 `openssl rand -hex 24` 生成；本地配置文件 `~/.config/job-farm-monitor/config` 权限 0600，不进任何 git 仓库。
 
 ### API
 
@@ -165,10 +165,10 @@
 2. **采集真实 payload**：先写 `local/bin/jfm-emit` 的记录模式（`JFM_RECORD_DIR` 下按 `<agent>-<event>-<ts>.json` 保存 stdin 原文），临时装进三份配置，在本机各跑一轮短会话：普通 prompt、触发授权、触发提问、完成、启动 subagent、`/clear` 或退出。把样本整理进 `packages/core/test/fixtures/{claude,codex,omp}/`。验证 Codex 子 agent 的 SessionStart/工具事件实际字段：若 `agent_type` 存在则用它做前缀，否则退回 `agent_id`。
 3. **core**：`types.ts`（信封、规范事件、Session）、`normalize/{claude,codex,omp}.ts`、`summarize.ts`、`reducer.ts`、`schema.sql.ts`、`store.ts`（基于 `SqlDriver`，含 revision、清理）、`drivers/node-sqlite.ts`、`drivers/libsql.ts`；DO 驱动放 server 包。
 4. **local**：
-   - `local/bin/jfm-emit <agent>`：读 stdin、读 `~/.config/job-farm-mon/config`、生成信封写入 outbox、按会话写 2 秒节流标记与 blocked 标记、`setsid`（无则 `nohup`）启动后台冲刷器；冲刷器用 `mkdir` 锁串行、批量 POST、2xx 删除、失败保留、超过 500 条丢最旧；`--flush`、`--check`（发空数组验证 token）、`--record`。
+   - `local/bin/jfm-emit <agent>`：读 stdin、读 `~/.config/job-farm-monitor/config`、生成信封写入 outbox、按会话写 2 秒节流标记与 blocked 标记、`setsid`（无则 `nohup`）启动后台冲刷器；冲刷器用 `mkdir` 锁串行、批量 POST、2xx 删除、失败保留、超过 500 条丢最旧；`--flush`、`--check`（发空数组验证 token）、`--record`。
    - `local/claude.hooks.json`：上述 Claude 事件全部 `async: true`，SessionEnd 同步 `timeout: 3`。
    - `local/codex.hooks.json`：上述 Codex 事件 `async: true`，SessionEnd/Interrupt `timeout: 1`。
-   - `local/omp/job-farm-mon.ts`：按映射表注册事件，直接 `fetch` 上报，内存队列重试两次；`ctx.agent.kind === "sub"` 时读取模块级 `rootSessionId` 归入父会话。验证分支：若子 agent 与主 agent 不在同一进程（`rootSessionId` 为空），子会话事件只发 `subagent_start/stop` 到自己的 session id 并由服务端按 `parentId` 挂到父卡；仍不可行则忽略子事件，父卡靠自身 `tool_execution_start` 显示“正在运行 subagent”。
+   - `local/omp/job-farm-monitor.ts`：按映射表注册事件，直接 `fetch` 上报，内存队列重试两次；`ctx.agent.kind === "sub"` 时读取模块级 `rootSessionId` 归入父会话。验证分支：若子 agent 与主 agent 不在同一进程（`rootSessionId` 为空），子会话事件只发 `subagent_start/stop` 到自己的 session id 并由服务端按 `parentId` 挂到父卡；仍不可行则忽略子事件，父卡靠自身 `tool_execution_start` 显示“正在运行 subagent”。
    - `local/install.sh`：检查 sh/jq/curl；写配置（0600）；复制 `jfm-emit` 到 `~/.local/bin`；用 jq 幂等合并 Claude 与 Codex hook（先删除 command 含 `jfm-emit` 的旧条目再插入）；复制 OMP 扩展；打印提示“在 Codex 里运行 `/hooks` 信任新 hook”；`--uninstall` 逆操作；在每台机器重复执行即可。
 5. **server**：`createApp({backend, auth})` 与路由、认证中间件、cookie 签名；`entry.cloudflare.ts`（Worker + `JfmStore` DO + DO SqlDriver）、`entry.node.ts`（Railway）、`entry.vercel.ts`；`wrangler.jsonc`、`Dockerfile`、`railway.json`、`vercel.json`。验证分支：若 Vercel 当前不接受 Hono 框架预设，改为 `api/index.ts` + `@hono/vercel` 的 `handle(app)` 并在 `vercel.json` 加 `/api/(.*)` 重写。验证 `run_worker_first` 在当前 wrangler schema 可用；不可用则在 Worker 内自行先匹配 `/api/*` 再回退 `env.ASSETS.fetch`。
 6. **web**：Vite + Preact；`api.ts`（轮询、304、可见性暂停、时钟校正）、`i18n.ts`（zh/en 字典）、组件 `SessionCard`、`Section`、`Login`、`HostFilter`；样式变量支持深浅色；构建到 `packages/web/dist`。

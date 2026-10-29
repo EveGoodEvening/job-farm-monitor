@@ -1,6 +1,6 @@
 # AGENTS.md
 
-job-farm-mon is a remote dashboard showing, at a glance, what every coding agent
+job-farm-monitor is a remote dashboard showing, at a glance, what every coding agent
 (Claude Code, Codex CLI, oh-my-pi) on several machines is doing: working,
 waiting for permission, waiting for an answer, done, error or ended. Agents
 report through their own hooks/extensions to a self-hosted API; one code base
@@ -18,7 +18,7 @@ deploys to Cloudflare Workers (Durable Object SQLite), Railway (Node 24 +
 | `packages/core` | `@jfm/core` | Pure TS: `types.ts`, `constants.ts`, `key.ts`, `envelope.ts` (zod), `summarize.ts`, `normalize/{claude,codex,omp,index}.ts`, `reducer.ts`, `schema.ts`, `store.ts`. Subpath exports `./drivers/node-sqlite` and `./drivers/libsql` keep Node/libSQL out of the Worker bundle. |
 | `packages/server` | `@jfm/server` | Hono app (`app.ts`, `auth.ts`, `backend.ts`), entries `entry.cloudflare.ts` (Worker + `JfmStore` DO), `entry.node.ts` (Railway), `entry.vercel.ts`; `drivers/do-sqlite.ts`; `wrangler.jsonc`, `vercel.json`, `tsup.config.ts`. |
 | `packages/web` | `@jfm/web` | Vite 8 + Preact 11 + @preact/signals dashboard, built to `packages/web/dist` and served by all three platforms. |
-| `local` | `@jfm/local` | `bin/jfm-emit` (POSIX sh + jq + curl reporter), `claude.hooks.json`, `codex.hooks.json`, `omp/job-farm-mon.ts` (oh-my-pi extension), `install.sh`, `merge-hooks.jq`, tests. |
+| `local` | `@jfm/local` | `bin/jfm-emit` (POSIX sh + jq + curl reporter), `claude.hooks.json`, `codex.hooks.json`, `omp/job-farm-monitor.ts` (oh-my-pi extension), `install.sh`, `merge-hooks.jq`, tests. |
 | `scripts` | - | Dev helpers (`seed.mjs`, screenshot script). |
 | `Dockerfile`, `railway.json` | - | Railway image (repo root). |
 
@@ -51,7 +51,7 @@ npm run dev:node | dev:web | dev:cf
   `~/.codex/hooks.json`, `~/.codex/config.toml`, `~/.omp/**`) in tests; use a
   temporary `HOME`.
 - Secrets (`READ_TOKEN`, `WRITE_TOKENS`, `TURSO_AUTH_TOKEN`, local config
-  `~/.config/job-farm-mon/config`) never go in the repo, logs or responses.
+  `~/.config/job-farm-monitor/config`) never go in the repo, logs or responses.
 - Commit only when the user asks; commit messages carry no AI attribution lines.
 
 ## Testing and heavy-gate
@@ -123,6 +123,8 @@ background:
 - E2E without touching user config: put XDG_CONFIG_HOME/XDG_STATE_HOME into the hook command string and call jfm-emit by absolute path.
 - Playwright is not a repo dependency. `scripts/screenshot.mjs` works with `PLAYWRIGHT_MODULE=<other project>/node_modules/playwright-core` and the cached `~/.cache/ms-playwright/chromium_headless_shell-1243`.
 - The heavy-gate hook rejects Bash commands it cannot shlex-parse and inline `node -e`, so put those commands in script files.
+- The hook also shlex-parses script files passed to bash/python (`bash -n local/install.sh` is refused because of its `'\'` case pattern); syntax-check install.sh through `local/test/install.test.mjs` instead.
+- Rename migration (job-farm-mon -> job-farm-monitor): install.sh validates config and hook JSON before moving anything, leaves relative compat symlinks `job-farm-mon -> job-farm-monitor`, and sets a losing legacy dir aside as `job-farm-mon.migrated-<time>`. The omp registry also adopts/publishes `Symbol.for("job-farm-mon.omp.registry")`.
 - `entry.node.ts` honours `HOST` (e.g. 127.0.0.1 for local runs); leave it unset on Railway.
 
 ### Privacy boundary fixes (2026-10-29)
@@ -131,3 +133,7 @@ background:
 - Reporter minimization must run both at enqueue and before upload: existing outbox files can predate the policy or `JFM_REDACT` setting. Keep raw blocked-call fingerprints local so permission pairing still works after minimization.
 - `JFM_DISABLE` must gate the flusher before locks, cleanup or network, not just hook collection. Config changes do not cancel an already-running process/request.
 - OMP terminal `stopReason: "error"` can carry either `errorMessage` or partial assistant text. Redact both paths; normal-success and retry-only coverage is insufficient.
+
+### Rename to job-farm-monitor (2026-10-29)
+
+- `local/install.sh` migrates pre-rename installs: `job-farm-mon` config/state dirs move to `job-farm-monitor` before `write_config` (new dirs win if both exist; queued outbox files are still moved over), and the old omp extension `job-farm-mon.ts` is removed, because oh-my-pi would otherwise load both and double-report. A flusher that is still running keeps working in the moved outbox, since it has `cd`'d into it, so only a lock whose owner is dead gets dropped.

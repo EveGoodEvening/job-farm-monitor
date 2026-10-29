@@ -1,7 +1,7 @@
 {
   "type": "session_start",
   "sessionId": "omp-sess-2b7e91c4",
-  "cwd": "/home/dev/work/job-farm-mon",
+  "cwd": "/home/dev/work/job-farm-monitor",
   "source": "start",
   "model": "anthropic/claude-opus-5-5",
   "hasUI": true,

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Seed a local job-farm-mon server with demo sessions built from the hook
+// Seed a local job-farm-monitor server with demo sessions built from the hook
 // payload fixtures in packages/core/test/fixtures/{claude,codex,omp}/*.json.
 //
 //   JFM_WRITE_TOKEN=<token> npm run seed
@@ -104,7 +104,7 @@ const SCENARIOS = [
     [['PreToolUse.Bash'], cmd('terraform plan -target=module.certs', 'Plan cert rotation')],
     [['PermissionRequest'], () => ({ tool_name: 'Bash', tool_input: { command: 'terraform apply -target=module.certs', description: 'Apply cert rotation' } })],
   ] },
-  { agent: 'claude', project: 'job-farm-mon', title: 'Add a host filter to the dashboard', from: 6, to: 0.2, steps: [
+  { agent: 'claude', project: 'job-farm-monitor', title: 'Add a host filter to the dashboard', from: 6, to: 0.2, steps: [
     [['SessionStart']], [['UserPromptSubmit'], prompt],
     [['PreToolUse.Agent'], () => ({ tool_input: { description: 'Find the host filter state' } })],
     [['SubagentStart']], [['PreToolUse.subagent'], file('packages/web/src/state.ts')],

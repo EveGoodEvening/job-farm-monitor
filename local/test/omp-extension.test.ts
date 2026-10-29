@@ -20,7 +20,7 @@ type Envelope = {
 
 const ENDPOINT = 'https://jfm.example.test';
 const TOKEN = 'tok-omp-test';
-const MODULE = '../omp/job-farm-mon.ts';
+const MODULE = '../omp/job-farm-monitor.ts';
 
 class FakePi {
   handlers = new Map<string, Handler[]>();
@@ -66,7 +66,7 @@ const payloads = (): Payload[] => sent().map((e) => e.payload);
 async function load(opts: { reset?: boolean } = {}) {
   if (opts.reset !== false) vi.resetModules();
   const mod = await import(MODULE);
-  if (opts.reset !== false) mod.__resetJobFarmMonForTests();
+  if (opts.reset !== false) mod.__resetJobFarmMonitorForTests();
   return mod;
 }
 
@@ -120,12 +120,12 @@ describe('config', () => {
     expect(pi.handlers.size).toBe(0);
   });
 
-  test('reads $XDG_CONFIG_HOME/job-farm-mon/config; env wins', async () => {
+  test('reads $XDG_CONFIG_HOME/job-farm-monitor/config; env wins', async () => {
     vi.stubEnv('JFM_ENDPOINT', '');
     vi.stubEnv('JFM_WRITE_TOKEN', '');
-    mkdirSync(join(tmp, 'xdg', 'job-farm-mon'), { recursive: true });
+    mkdirSync(join(tmp, 'xdg', 'job-farm-monitor'), { recursive: true });
     writeFileSync(
-      join(tmp, 'xdg', 'job-farm-mon', 'config'),
+      join(tmp, 'xdg', 'job-farm-monitor', 'config'),
       `# comment\nJFM_ENDPOINT="https://cfg.example.test"\nexport JFM_WRITE_TOKEN='cfg-token'\nJFM_REDACT=0\n`,
     );
     const mod = await load();
@@ -142,9 +142,9 @@ describe('config', () => {
     vi.stubEnv('JFM_ENDPOINT', '');
     vi.stubEnv('JFM_WRITE_TOKEN', '');
     vi.stubEnv('XDG_CONFIG_HOME', '');
-    mkdirSync(join(tmp, '.config', 'job-farm-mon'), { recursive: true });
+    mkdirSync(join(tmp, '.config', 'job-farm-monitor'), { recursive: true });
     writeFileSync(
-      join(tmp, '.config', 'job-farm-mon', 'config'),
+      join(tmp, '.config', 'job-farm-monitor', 'config'),
       'JFM_ENDPOINT=https://home.example.test\nJFM_WRITE_TOKEN=home-token\nJFM_DISABLE=1\n',
     );
     const mod = await load();
@@ -440,6 +440,26 @@ describe('subagents (T12: same process, root via globalThis registry)', () => {
     // ask inside a subagent is just a tool line (the user is not asked).
     expect(p[3]).toMatchObject({ type: 'tool_start', tool: 'ask' });
     expect(p[7]).toMatchObject({ agentId: '0-Explore.0-Task' });
+  });
+
+  test('adopts the registry of a pre-rename module instance (job-farm-mon.omp.registry)', async () => {
+    const mod = await load();
+    // What the old job-farm-mon.ts left behind in a running omp process.
+    const legacy = { agents: new Map([['Main', 'ROOT']]), lastRoot: 'ROOT', lastTool: new Map() };
+    (globalThis as Record<symbol, unknown>)[Symbol.for('job-farm-mon.omp.registry')] = legacy;
+    const subPi = new FakePi();
+    mod.default(subPi);
+    const sub = subCtx('CHILD', '1-Task', 'task', 'Main');
+    await subPi.fire('session_start', {}, sub);
+    await subPi.fire('agent_start', {}, sub);
+    await subPi.fire('agent_end', { messages: [] }, sub);
+    await subPi.fire('session_shutdown', {}, sub);
+    expect(payloads().map((p) => [p.type, p.sessionId])).toEqual([
+      ['subagent_start', 'ROOT'],
+      ['subagent_stop', 'ROOT'],
+    ]);
+    expect((globalThis as Record<symbol, unknown>)[Symbol.for('job-farm-monitor.omp.registry')]).toBe(legacy);
+    mod.__resetJobFarmMonitorForTests();
   });
 
   test('a fresh module instance (isolated task / reload re-import) still finds the root', async () => {

@@ -1,6 +1,6 @@
 # Railway image: Node 24 + node:sqlite, serves the API and the web dashboard.
-# Build: docker build -t job-farm-mon .
-# Run:   docker run -e READ_TOKEN=.. -e WRITE_TOKENS=host:tok -v "$PWD/tmpdata:/data" -p 127.0.0.1:8080:8080 job-farm-mon
+# Build: docker build -t job-farm-monitor .
+# Run:   docker run -e READ_TOKEN=.. -e WRITE_TOKENS=host:tok -v "$PWD/tmpdata:/data" -p 127.0.0.1:8080:8080 job-farm-monitor
 
 FROM node:24-alpine AS build
 WORKDIR /app

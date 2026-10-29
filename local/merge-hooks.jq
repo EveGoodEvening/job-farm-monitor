@@ -1,4 +1,4 @@
-# merge-hooks.jq - idempotently merge (or remove) job-farm-mon hook groups into a
+# merge-hooks.jq - idempotently merge (or remove) job-farm-monitor hook groups into a
 # Claude Code settings.json or a Codex hooks.json. Both share the shape
 #   { "hooks": { "<Event>": [ { "matcher"?: "...", "hooks": [ { "type": "command", "command": "..." } ] } ] } }
 #

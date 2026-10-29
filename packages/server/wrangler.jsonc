@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "job-farm-mon",
+  "name": "job-farm-monitor",
   "main": "src/entry.cloudflare.ts",
   "compatibility_date": "2026-10-29",
   "durable_objects": {

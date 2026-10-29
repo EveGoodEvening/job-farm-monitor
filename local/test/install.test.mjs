@@ -3,7 +3,10 @@
 // and ~/.codex/config.toml (heavy-gate, commit-attribution and herdr hooks).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync,
+  symlinkSync, writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import {
@@ -26,10 +29,17 @@ const CODEX_EVENTS = [
   'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Stop',
   'SubagentStart', 'SubagentStop', 'PreCompact', 'SessionEnd', 'Interrupt',
 ];
-const OMP_SRC = join(LOCAL_DIR, 'omp', 'job-farm-mon.ts');
+const OMP_SRC = join(LOCAL_DIR, 'omp', 'job-farm-monitor.ts');
 
 const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'));
 const read = (p) => readFileSync(p, 'utf8');
+const isLink = (p) => {
+  try {
+    return lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+};
 const isJfm = (h) => typeof h?.command === 'string' && h.command.includes('jfm-emit');
 
 function fixtureHome() {
@@ -52,9 +62,9 @@ const paths = (home) => ({
   codex: join(home, '.codex', 'hooks.json'),
   codexToml: join(home, '.codex', 'config.toml'),
   emit: join(home, '.local', 'bin', 'jfm-emit'),
-  config: join(home, '.config', 'job-farm-mon', 'config'),
-  state: join(home, '.local', 'state', 'job-farm-mon'),
-  ompExt: join(home, '.omp', 'agent', 'extensions', 'job-farm-mon.ts'),
+  config: join(home, '.config', 'job-farm-monitor', 'config'),
+  state: join(home, '.local', 'state', 'job-farm-monitor'),
+  ompExt: join(home, '.omp', 'agent', 'extensions', 'job-farm-monitor.ts'),
   herdrExt: join(home, '.omp', 'agent', 'extensions', 'herdr-omp-agent-state.ts'),
 });
 
@@ -94,7 +104,7 @@ describe('hook fragments', () => {
           command: '~/.local/bin/jfm-emit codex',
           async: true,
           timeout: 5,
-          statusMessage: 'job-farm-mon',
+          statusMessage: 'job-farm-monitor',
         });
       }
     }
@@ -311,6 +321,191 @@ describe('install.sh', () => {
       assert.equal(existsSync(p.config), false);
       assert.equal(existsSync(p.state), false);
       assert.equal(existsSync(p.emit), false);
+    } finally {
+      await cleanupHome(home);
+    }
+  });
+
+  test('migrates an install from the old name job-farm-mon', async () => {
+    const home = fixtureHome();
+    const p = paths(home);
+    const legacyConfigDir = join(home, '.config', 'job-farm-mon');
+    const legacyState = join(home, '.local', 'state', 'job-farm-mon');
+    const legacyExt = join(home, '.omp', 'agent', 'extensions', 'job-farm-mon.ts');
+    try {
+      mkdirSync(legacyConfigDir, { recursive: true });
+      writeFileSync(
+        join(legacyConfigDir, 'config'),
+        `JFM_ENDPOINT='${server.url}'\nJFM_WRITE_TOKEN='tok-legacy'\nJFM_REDACT=1\n`,
+        { mode: 0o644 },
+      );
+      mkdirSync(join(legacyState, 'outbox'), { recursive: true });
+      writeFileSync(join(legacyState, 'outbox', '1700000000000-1-a.json'), '{"queued":1}\n');
+      // A lock left by a flusher that is gone (no such pid): dropped on migration.
+      mkdirSync(join(legacyState, 'lock.d'));
+      writeFileSync(join(legacyState, 'lock.d', 'pid'), '999999999\n');
+      writeFileSync(legacyExt, '// old extension\n');
+
+      const r = await install(home);
+      assert.equal(r.code, 0, r.stderr + r.stdout);
+      assert.match(r.stdout, /migrated: .*job-farm-mon -> .*job-farm-monitor/);
+      assert.match(r.stdout, /kept existing config/);
+
+      // Config moved before write_config: endpoint/token/extra lines kept, 0600 enforced.
+      // The legacy paths become relative symlinks for reporters that are still running.
+      assert.ok(lstatSync(legacyConfigDir).isSymbolicLink());
+      assert.equal(readlinkSync(legacyConfigDir), 'job-farm-monitor');
+      const cfg = read(p.config);
+      assert.match(cfg, /^JFM_WRITE_TOKEN='tok-legacy'$/m);
+      assert.match(cfg, /^JFM_REDACT=1$/m);
+      assert.equal(statSync(p.config).mode & 0o777, 0o600);
+
+      // State moved with its outbox; the dead lock is gone.
+      assert.equal(readlinkSync(legacyState), 'job-farm-monitor');
+      assert.equal(read(join(legacyState, 'outbox', '1700000000000-1-a.json')), '{"queued":1}\n');
+      assert.equal(read(join(p.state, 'outbox', '1700000000000-1-a.json')), '{"queued":1}\n');
+      assert.equal(existsSync(join(p.state, 'lock.d')), false);
+
+      // Old omp extension removed so oh-my-pi does not load both.
+      assert.equal(existsSync(legacyExt), false);
+      if (existsSync(OMP_SRC)) assert.ok(existsSync(p.ompExt));
+      assert.ok(existsSync(p.herdrExt));
+
+      const check = await run(p.emit, ['--check'], { env: cleanEnv(home) });
+      assert.equal(check.code, 0, check.stderr);
+      assert.equal(server.state.requests.at(-1)?.headers.authorization, 'Bearer tok-legacy');
+
+      // Re-install: nothing left to migrate.
+      const r2 = await install(home);
+      assert.equal(r2.code, 0, r2.stderr);
+      assert.doesNotMatch(r2.stdout, /migrated|NOTE|job-farm-mon\b/);
+
+      // Uninstall drops the compatibility symlinks and keeps the real dirs.
+      const u = await install(home, ['--uninstall']);
+      assert.equal(u.code, 0, u.stderr);
+      for (const d of [legacyConfigDir, legacyState]) assert.equal(existsSync(d) || isLink(d), false, d);
+      assert.ok(existsSync(p.config));
+    } finally {
+      await cleanupHome(home);
+    }
+  });
+
+  test('migration keeps a running flusher lock and the new dirs when both exist', async () => {
+    const home = tempHome('jfm-install-');
+    const p = paths(home);
+    const legacyConfigDir = join(home, '.config', 'job-farm-mon');
+    const legacyState = join(home, '.local', 'state', 'job-farm-mon');
+    try {
+      // Only the state dir is legacy; its lock belongs to a live process.
+      mkdirSync(join(legacyState, 'lock.d'), { recursive: true });
+      writeFileSync(join(legacyState, 'lock.d', 'pid'), `${process.pid}\n`);
+      const r = await install(home, ['--endpoint', 'https://jfm.example.dev', '--token', 't1']);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(read(join(p.state, 'lock.d', 'pid')), `${process.pid}\n`, 'live lock kept');
+      rmSync(join(p.state, 'lock.d'), { recursive: true });
+
+      // The moved state dir left a symlink behind; a leftover flusher recreating the old
+      // path would go through it. Simulate a real legacy dir appearing anyway.
+      assert.ok(isLink(legacyState));
+      rmSync(legacyState);
+
+      // Both old and new exist: the new ones win, queued events moved, the rest set aside.
+      mkdirSync(legacyConfigDir, { recursive: true });
+      writeFileSync(join(legacyConfigDir, 'config'), "JFM_WRITE_TOKEN='old'\n");
+      mkdirSync(join(legacyState, 'outbox'), { recursive: true });
+      writeFileSync(join(legacyState, 'outbox', '1700000000000-2-b.json'), '{"queued":2}\n');
+      writeFileSync(join(legacyState, 'emit.log'), 'old log\n');
+      const r2 = await install(home);
+      assert.equal(r2.code, 0, r2.stderr);
+      assert.match(r2.stdout, /NOTE: both .*job-farm-mon and .*job-farm-monitor existed/);
+      assert.match(r2.stdout, /may hold a write token/);
+      assert.match(r2.stdout, /migrated: 1 queued event file/);
+      assert.match(read(p.config), /^JFM_WRITE_TOKEN='t1'$/m);
+      assert.equal(read(join(p.state, 'outbox', '1700000000000-2-b.json')), '{"queued":2}\n');
+      const aside = (base) => readdirSync(join(base, '..')).filter((n) => n.startsWith('job-farm-mon.migrated-'));
+      const [cfgAside] = aside(legacyConfigDir);
+      const [stateAside] = aside(legacyState);
+      assert.equal(read(join(home, '.config', cfgAside, 'config')), "JFM_WRITE_TOKEN='old'\n");
+      assert.equal(read(join(home, '.local', 'state', stateAside, 'emit.log')), 'old log\n');
+      assert.ok(isLink(legacyConfigDir) && isLink(legacyState));
+
+      // The NOTE does not repeat on the next install.
+      const r3 = await install(home);
+      assert.equal(r3.code, 0, r3.stderr);
+      assert.doesNotMatch(r3.stdout, /NOTE|migrated/);
+
+      // Uninstall without --purge names the kept legacy dirs.
+      const k = await install(home, ['--uninstall']);
+      assert.equal(k.code, 0, k.stderr);
+      assert.match(k.stdout, new RegExp(`kept config and state .*${cfgAside}.*${stateAside}`));
+
+      // --purge also removes the leftover legacy directories.
+      const u = await install(home, ['--uninstall', '--purge']);
+      assert.equal(u.code, 0, u.stderr);
+      for (const d of [p.config, p.state, legacyConfigDir, legacyState,
+        join(home, '.config', cfgAside), join(home, '.local', 'state', stateAside)]) {
+        assert.equal(existsSync(d) || isLink(d), false, d);
+      }
+    } finally {
+      await cleanupHome(home);
+    }
+  });
+
+  test('migration waits until all input is valid; --no-omp keeps the old extension working', async () => {
+    const home = fixtureHome();
+    const p = paths(home);
+    const legacyConfigDir = join(home, '.config', 'job-farm-mon');
+    const legacyExt = join(home, '.omp', 'agent', 'extensions', 'job-farm-mon.ts');
+    const claudeBefore = read(p.claude);
+    try {
+      mkdirSync(legacyConfigDir, { recursive: true });
+      writeFileSync(join(legacyConfigDir, 'config'), "JFM_ENDPOINT='https://x.dev'\nJFM_WRITE_TOKEN='old'\n");
+      writeFileSync(legacyExt, '// old extension\n');
+
+      const bad = await install(home, ['--token', 'a b']);
+      assert.equal(bad.code, 1);
+      assert.match(bad.stderr, /must not contain/);
+      assert.doesNotMatch(bad.stdout, /migrated/);
+      assert.ok(lstatSync(legacyConfigDir).isDirectory() && !isLink(legacyConfigDir), 'nothing moved');
+      assert.equal(existsSync(p.config), false);
+
+      writeFileSync(p.claude, '[1]');
+      const notObj = await install(home);
+      assert.equal(notObj.code, 1);
+      assert.match(notObj.stderr, /not a JSON object/);
+      assert.ok(!isLink(legacyConfigDir), 'nothing moved');
+      assert.equal(existsSync(p.emit), false, 'jfm-emit not replaced');
+      writeFileSync(p.claude, claudeBefore);
+
+      const r = await install(home, ['--no-omp']);
+      assert.equal(r.code, 0, r.stderr);
+      assert.match(r.stdout, /old oh-my-pi extension .*job-farm-mon\.ts is still installed/);
+      assert.ok(existsSync(legacyExt), '--no-omp respected');
+      // The old extension still finds its config through the symlink.
+      assert.match(read(join(legacyConfigDir, 'config')), /JFM_WRITE_TOKEN='old'/);
+      assert.match(read(p.config), /JFM_WRITE_TOKEN='old'/);
+    } finally {
+      await cleanupHome(home);
+    }
+  });
+
+  test('uninstall removes the old omp extension too', async () => {
+    const home = fixtureHome();
+    const p = paths(home);
+    const legacyExt = join(home, '.omp', 'agent', 'extensions', 'job-farm-mon.ts');
+    try {
+      writeFileSync(legacyExt, '// old extension\n');
+      const u = await install(home, ['--uninstall']);
+      assert.equal(u.code, 0, u.stderr);
+      assert.match(u.stdout, /removed: .*job-farm-mon\.ts/);
+      assert.equal(existsSync(legacyExt), false);
+      assert.equal(existsSync(p.ompExt), false);
+      assert.ok(existsSync(p.herdrExt));
+
+      writeFileSync(legacyExt, '// old extension\n');
+      const keep = await install(home, ['--uninstall', '--no-omp']);
+      assert.equal(keep.code, 0, keep.stderr);
+      assert.ok(existsSync(legacyExt), '--no-omp respected');
     } finally {
       await cleanupHome(home);
     }

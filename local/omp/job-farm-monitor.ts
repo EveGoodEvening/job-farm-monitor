@@ -1,14 +1,14 @@
-// job-farm-mon reporter for oh-my-pi (tested against 18.13.3).
-// Installed by job-farm-mon `local/install.sh` to ~/.omp/agent/extensions/job-farm-mon.ts;
+// job-farm-monitor reporter for oh-my-pi (tested against 18.13.3).
+// Installed by job-farm-monitor `local/install.sh` to ~/.omp/agent/extensions/job-farm-monitor.ts;
 // reinstalling overwrites this file.
 // @ts-nocheck
 /* eslint-disable @typescript-eslint/no-explicit-any -- omp hands us untyped event/ctx objects; this file is loaded by omp (Bun) without our types */
 //
-// Reports canonical job-farm-mon events (docs/contracts.md section 2, `OmpPayload`)
+// Reports canonical job-farm-monitor events (docs/contracts.md section 2, `OmpPayload`)
 // straight to `${JFM_ENDPOINT}/api/ingest` with in-process `fetch`: a serial
 // in-memory queue, batches of <= 100, 2 retries, 3 s per request, and a 2 s
-// drain on session_shutdown. Config: `$XDG_CONFIG_HOME/job-farm-mon/config`
-// (default ~/.config/job-farm-mon/config), sh `KEY=value` lines; environment
+// drain on session_shutdown. Config: `$XDG_CONFIG_HOME/job-farm-monitor/config`
+// (default ~/.config/job-farm-monitor/config), sh `KEY=value` lines; environment
 // variables win. Missing endpoint/token or JFM_DISABLE=1 -> the extension
 // registers nothing.
 //
@@ -45,7 +45,10 @@ const STATE_MSG_MAX = 300;
 const RETRY_BACKOFF_MS = 250;
 
 const PREVIEW_KEYS = ["command", "path", "file_path", "pattern", "description", "question", "query", "url"];
-const GLOBAL_KEY = Symbol.for("job-farm-mon.omp.registry");
+const GLOBAL_KEY = Symbol.for("job-farm-monitor.omp.registry");
+// Key used before the rename (job-farm-mon.ts). A process that loaded the old file and
+// then re-imports the new one (/reload, isolated task) must keep one shared registry.
+const LEGACY_GLOBAL_KEY = Symbol.for("job-farm-mon.omp.registry");
 
 // ---------------------------------------------------------------------------
 // Process-wide registry (shared across module instances, see header)
@@ -63,8 +66,10 @@ type Registry = {
 function registry(): Registry {
   let reg = globalThis[GLOBAL_KEY];
   if (!reg) {
-    reg = { agents: new Map(), lastRoot: undefined, lastTool: new Map() };
+    // Same shape as the old module's registry: adopt it, or publish ours under both keys.
+    reg = globalThis[LEGACY_GLOBAL_KEY] ?? { agents: new Map(), lastRoot: undefined, lastTool: new Map() };
     globalThis[GLOBAL_KEY] = reg;
+    globalThis[LEGACY_GLOBAL_KEY] ??= reg;
   }
   return reg;
 }
@@ -99,7 +104,7 @@ function parseConfigFile(text: string): Record<string, string> {
 function configPath(env: Record<string, string | undefined>): string {
   const xdg = env.XDG_CONFIG_HOME;
   const base = xdg && xdg.length > 0 ? xdg : join(env.HOME || homedir(), ".config");
-  return join(base, "job-farm-mon", "config");
+  return join(base, "job-farm-monitor", "config");
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config | null {
@@ -327,7 +332,7 @@ function createSender(config: Config) {
 let moduleSender: ReturnType<typeof createSender> | null = null;
 let moduleSenderKey = "";
 
-export default function jobFarmMon(pi: any): void {
+export default function jobFarmMonitor(pi: any): void {
   const env = process.env;
   const config = loadConfig(env);
   if (!config) return;
@@ -629,8 +634,9 @@ export default function jobFarmMon(pi: any): void {
 }
 
 /** Test hook: forget process-wide state (registry + sender). */
-export function __resetJobFarmMonForTests(): void {
+export function __resetJobFarmMonitorForTests(): void {
   delete globalThis[GLOBAL_KEY];
+  delete globalThis[LEGACY_GLOBAL_KEY];
   moduleSender = null;
   moduleSenderKey = "";
 }

@@ -1,5 +1,5 @@
 #!/bin/sh
-# jfm-emit - job-farm-mon local reporter (POSIX sh + jq + curl).
+# jfm-emit - job-farm-monitor local reporter (POSIX sh + jq + curl).
 #
 # Usage:
 #   jfm-emit <claude|codex|omp>          hook mode: read hook JSON on stdin, queue an
@@ -9,10 +9,10 @@
 #   jfm-emit --flush                    send queued envelopes (POST ${JFM_ENDPOINT}/api/ingest)
 #   jfm-emit --check                    POST [] and print the HTTP status + body
 #
-# Config: ${XDG_CONFIG_HOME:-~/.config}/job-farm-mon/config, sh-style KEY=value lines
+# Config: ${XDG_CONFIG_HOME:-~/.config}/job-farm-monitor/config, sh-style KEY=value lines
 # (JFM_ENDPOINT, JFM_WRITE_TOKEN, JFM_DISABLE, JFM_REDACT, JFM_RECORD_DIR). The file is
 # parsed, never sourced; environment variables win over it.
-# State:  ${XDG_STATE_HOME:-~/.local/state}/job-farm-mon/{outbox,markers,lock.d,record,rejected,emit.log}
+# State:  ${XDG_STATE_HOME:-~/.local/state}/job-farm-monitor/{outbox,markers,lock.d,record,rejected,emit.log}
 #
 # Hook mode never blocks the agent: it always exits 0 (never 2) and returns after a few
 # small forks; network I/O happens only in the detached --flush process.
@@ -32,8 +32,8 @@ NL='
 '
 US=$(printf '\037')
 
-cfg_file="${XDG_CONFIG_HOME:-$HOME/.config}/job-farm-mon/config"
-state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/job-farm-mon"
+cfg_file="${XDG_CONFIG_HOME:-$HOME/.config}/job-farm-monitor/config"
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/job-farm-monitor"
 outbox="$state_dir/outbox"
 markers="$state_dir/markers"
 lock_dir="$state_dir/lock.d"

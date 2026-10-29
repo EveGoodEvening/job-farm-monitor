@@ -8,7 +8,7 @@
             "command": "~/.local/bin/jfm-emit codex",
             "async": true,
             "timeout": 5,
-            "statusMessage": "job-farm-mon"
+            "statusMessage": "job-farm-monitor"
           }
         ]
       }
@@ -21,7 +21,7 @@
             "command": "~/.local/bin/jfm-emit codex",
             "async": true,
             "timeout": 5,
-            "statusMessage": "job-farm-mon"
+            "statusMessage": "job-farm-monitor"
           }
         ]
       }
@@ -34,7 +34,7 @@
             "command": "~/.local/bin/jfm-emit codex",
             "async": true,
             "timeout": 5,
-            "statusMessage": "job-farm-mon"
+            "statusMessage": "job-farm-monitor"
           }
         ]
       }
@@ -47,7 +47,7 @@
             "command": "~/.local/bin/jfm-emit codex",
             "async": true,
             "timeout": 5,
-            "statusMessage": "job-farm-mon"
+            "statusMessage": "job-farm-monitor"
           }
         ]
       }
@@ -60,7 +60,7 @@
             "command": "~/.local/bin/jfm-emit codex",
             "async": true,
             "timeout": 5,
-            "statusMessage": "job-farm-mon"
+            "statusMessage": "job-farm-monitor"
           }
         ]
       }
@@ -73,7 +73,7 @@
             "command": "~/.local/bin/jfm-emit codex",
             "async": true,
             "timeout": 5,
-            "statusMessage": "job-farm-mon"
+            "statusMessage": "job-farm-monitor"
           }
         ]
       }
@@ -86,7 +86,7 @@
             "command": "~/.local/bin/jfm-emit codex",
             "async": true,
             "timeout": 5,
-            "statusMessage": "job-farm-mon"
+            "statusMessage": "job-farm-monitor"
           }
         ]
       }
@@ -99,7 +99,7 @@
             "command": "~/.local/bin/jfm-emit codex",
             "async": true,
             "timeout": 5,
-            "statusMessage": "job-farm-mon"
+            "statusMessage": "job-farm-monitor"
           }
         ]
       }
@@ -112,7 +112,7 @@
             "command": "~/.local/bin/jfm-emit codex",
             "async": true,
             "timeout": 5,
-            "statusMessage": "job-farm-mon"
+            "statusMessage": "job-farm-monitor"
           }
         ]
       }

@@ -1,4 +1,4 @@
-// Shared contracts for every job-farm-mon package.
+// Shared contracts for every job-farm-monitor package.
 //
 // This file is the single source of truth for shapes that cross package
 // boundaries (core <-> server <-> web <-> local). It must stay free of runtime

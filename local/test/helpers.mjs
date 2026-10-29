@@ -59,7 +59,7 @@ export async function waitFor(fn, { timeout = 8000, interval = 25, what = 'condi
 }
 
 export function stateDir(home) {
-  return join(home, '.local', 'state', 'job-farm-mon');
+  return join(home, '.local', 'state', 'job-farm-monitor');
 }
 
 export function outboxFiles(home) {

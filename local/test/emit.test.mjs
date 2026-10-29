@@ -631,7 +631,7 @@ for (const sh of SHELLS) {
     test('reads the config file; environment variables win', async () => {
       const { home } = setup();
       try {
-        const cfgDir = join(home, '.config', 'job-farm-mon');
+        const cfgDir = join(home, '.config', 'job-farm-monitor');
         mkdirSync(cfgDir, { recursive: true });
         writeFileSync(
           join(cfgDir, 'config'),

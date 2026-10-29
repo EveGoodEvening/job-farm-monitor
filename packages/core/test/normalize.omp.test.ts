@@ -10,7 +10,7 @@ const expected: Record<string, unknown[]> = {
     {
       type: 'session_start',
       ...base,
-      cwd: '/home/dev/work/job-farm-mon',
+      cwd: '/home/dev/work/job-farm-monitor',
       model: 'anthropic/claude-opus-5-5',
       source: 'start',
     },

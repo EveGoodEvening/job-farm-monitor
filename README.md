@@ -1,12 +1,12 @@
-# job-farm-mon
+# job-farm-monitor
 
-> **中文简介**：job-farm-mon 是一个自托管的远程仪表盘，一眼看清多台机器上每个 coding
+> **中文简介**：job-farm-monitor 是一个自托管的远程仪表盘，一眼看清多台机器上每个 coding
 > agent（Claude Code、Codex CLI、oh-my-pi）当前是 **进行中 / 等待授权 / 等待回答 / 完成 /
 > 出错 / 已结束**。各 agent 通过自己的 hook 或扩展把事件上报到你部署的 API；同一份代码可部署到
 > Cloudflare Workers、Railway 或 Vercel（三选一即可）。下文为英文完整说明：部署步骤、token
 > 生成、每台机器安装、Codex `/hooks` 信任、排障、免费额度估算与 `JFM_REDACT` 隐私选项。
 
-job-farm-mon is a self-hosted dashboard that shows, at a glance, what every
+job-farm-monitor is a self-hosted dashboard that shows, at a glance, what every
 coding agent on every one of your machines is doing: **working**, **waiting for
 permission**, **waiting for an answer**, **done**, **error** or **ended**. Agents
 report through their own hooks/extensions; nothing polls your machines. A
@@ -32,7 +32,7 @@ Contents: [Architecture](#architecture) ·
 
 ```
 [Claude Code hooks]──┐
-[Codex hooks.json]───┼─> jfm-emit (sh) ─> ~/.local/state/job-farm-mon/outbox/*.json ─┐
+[Codex hooks.json]───┼─> jfm-emit (sh) ─> ~/.local/state/job-farm-monitor/outbox/*.json ─┐
 [omp extension .ts]──┘ (in-process fetch, in-memory retry)                           │ background curl, batched POST
                                                                                      ▼
                                    POST /api/ingest  (Bearer <write token>; host label comes from the token)
@@ -48,7 +48,7 @@ Contents: [Architecture](#architecture) ·
   Codex hooks. It writes the event to a local outbox and returns in ~10–20 ms;
   a detached flusher POSTs batches (≤ 100) and keeps the outbox (≤ 500 files)
   while the server is unreachable.
-- `local/omp/job-farm-mon.ts` is an oh-my-pi extension that POSTs directly with
+- `local/omp/job-farm-monitor.ts` is an oh-my-pi extension that POSTs directly with
   `fetch` (2 retries, 3 s timeout).
 - One write token per machine (`WRITE_TOKENS="label:token,..."`): the host label
   on the dashboard comes from the token, so machines cannot impersonate each
@@ -69,7 +69,7 @@ Contents: [Architecture](#architecture) ·
 You need Node 24 and one `npm install` at the repo root:
 
 ```sh
-git clone <this repo> job-farm-mon && cd job-farm-mon
+git clone <this repo> job-farm-monitor && cd job-farm-monitor
 npm install
 ```
 
@@ -106,11 +106,11 @@ npm run deploy:cf                                       # builds core + web, the
 ```
 
 - On the very first `secret put`, wrangler asks whether to create the Worker
-  `job-farm-mon`; answer yes. (Alternatively run `npm run deploy:cf` first and
+  `job-farm-monitor`; answer yes. (Alternatively run `npm run deploy:cf` first and
   add the secrets afterwards; until then login and ingest are disabled.)
 - The Worker URL is printed by the deploy, e.g.
-  `https://job-farm-mon.<your-subdomain>.workers.dev`. Check it:
-  `curl https://job-farm-mon.<sub>.workers.dev/api/health` →
+  `https://job-farm-monitor.<your-subdomain>.workers.dev`. Check it:
+  `curl https://job-farm-monitor.<sub>.workers.dev/api/health` →
   `{"ok":true,"version":"0.1.0","driver":"do-sqlite"}`.
 - The Worker name, DO binding and assets are in `packages/server/wrangler.jsonc`.
   Secrets are never put in `vars`.
@@ -144,9 +144,9 @@ Data lives on the volume, so redeploys and restarts keep it. To try the image
 locally:
 
 ```sh
-docker build -t job-farm-mon .
+docker build -t job-farm-monitor .
 docker run --rm -e READ_TOKEN=r -e WRITE_TOKENS=dev:w -v "$PWD/tmpdata:/data" \
-  -p 127.0.0.1:8080:8080 job-farm-mon
+  -p 127.0.0.1:8080:8080 job-farm-monitor
 ```
 
 ### 2c. Vercel + Turso
@@ -158,9 +158,9 @@ static files.
 1. Create the database (Turso CLI, after `turso auth login`):
 
    ```sh
-   turso db create job-farm-mon
-   turso db show job-farm-mon --url          # -> TURSO_DATABASE_URL (libsql://...)
-   turso db tokens create job-farm-mon       # -> TURSO_AUTH_TOKEN
+   turso db create job-farm-monitor
+   turso db show job-farm-monitor --url          # -> TURSO_DATABASE_URL (libsql://...)
+   turso db tokens create job-farm-monitor       # -> TURSO_AUTH_TOKEN
    ```
 
    The schema is created automatically on the first request.
@@ -193,26 +193,31 @@ Requirements: `bash`, `jq`, `curl` (and `setsid` or `nohup`). On every machine
 that runs agents, with that machine's own write token:
 
 ```sh
-local/install.sh --endpoint https://job-farm-mon.<sub>.workers.dev --token <this machine's write token>
+local/install.sh --endpoint https://job-farm-monitor.<sub>.workers.dev --token <this machine's write token>
 ```
 
 What it does (idempotent; re-run it any time):
 
-- writes `~/.config/job-farm-mon/config` (mode 0600; `KEY=value` lines,
+- writes `~/.config/job-farm-monitor/config` (mode 0600; `KEY=value` lines,
   environment variables override it). Without flags it keeps an existing
   config; with flags it updates only those keys.
 - installs `~/.local/bin/jfm-emit`.
 - merges `local/claude.hooks.json` into `~/.claude/settings.json` and
   `local/codex.hooks.json` into `~/.codex/hooks.json`, keeping your other hooks;
   a `<file>.bak-jfm` backup is written first.
-- copies `local/omp/job-farm-mon.ts` to `~/.omp/agent/extensions/`.
+- copies `local/omp/job-farm-monitor.ts` to `~/.omp/agent/extensions/`.
 - skips an agent whose home dir (`~/.claude`, `~/.codex`, `~/.omp`) is missing;
   `--no-claude`, `--no-codex`, `--no-omp` skip one explicitly.
+- migrates a machine set up under the old name `job-farm-mon`: it moves
+  `~/.config/job-farm-mon` and `~/.local/state/job-farm-mon` (config, queued
+  events) to the new `job-farm-monitor` paths unless those already exist, and
+  removes the old `~/.omp/agent/extensions/job-farm-mon.ts`. The Codex hook
+  `statusMessage` changed with the rename, so re-trust the hooks via `/hooks`.
 
 Then:
 
 1. Restart running agent sessions so they load the hooks.
-2. In Codex, run `/hooks` and trust the job-farm-mon hooks (see below).
+2. In Codex, run `/hooks` and trust the job-farm-monitor hooks (see below).
 3. Run `~/.local/bin/jfm-emit --check`: it prints the endpoint and
    `HTTP 200 {"accepted":0,"ignored":0,"revision":N}` when endpoint and token work.
 4. Open the dashboard once as `https://<your endpoint>/#token=<READ_TOKEN>`: it
@@ -220,7 +225,7 @@ Then:
    the read token on the login page.
 
 Uninstall: `local/install.sh --uninstall` (add `--purge` to also delete the
-config and the state directory).
+config and the state directory, including leftover `job-farm-mon` ones).
 
 #### Codex hooks: trust and quirks
 
@@ -251,7 +256,7 @@ uploaded. Full working-directory and file paths can still be sent by default.
 The server stores session/progress summaries and metadata; the event table
 contains only deduplication metadata, never payloads. Summaries can themselves
 contain secrets: truncation is not secret detection. To suppress content, add
-to `~/.config/job-farm-mon/config` (or the environment):
+to `~/.config/job-farm-monitor/config` (or the environment):
 
 ```sh
 JFM_REDACT=1
@@ -288,15 +293,15 @@ trusted HTTPS endpoint for remote reporting.
 |---|---|
 | Server up? | `curl https://<endpoint>/api/health` → `{"ok":true,"version":"0.1.0","driver":"..."}` (no auth) |
 | Endpoint + token from this machine | `~/.local/bin/jfm-emit --check` → `HTTP 200`; `HTTP 401` = wrong/revoked token; exit 2 = not configured |
-| Events queued but not sent | `ls ~/.local/state/job-farm-mon/outbox/` (pending envelopes, max 500, oldest dropped) |
-| Why sending fails | `~/.local/state/job-farm-mon/emit.log` (HTTP errors, curl failures; rotates at 1 MiB; never contains the token) |
+| Events queued but not sent | `ls ~/.local/state/job-farm-monitor/outbox/` (pending envelopes, max 500, oldest dropped) |
+| Why sending fails | `~/.local/state/job-farm-monitor/emit.log` (HTTP errors, curl failures; rotates at 1 MiB; never contains the token) |
 | Retry now | `~/.local/bin/jfm-emit --flush` |
 | Capture raw hook payloads | set `JFM_RECORD_DIR=<dir>` in the config; payloads are saved as `<agent>-<event>-<ms>.json` |
 | Dashboard shows "no update for Xm" | the agent stopped reporting for ≥ 10 min while working/waiting: process killed, network down, or (Codex) hooks no longer trusted |
 | "delayed" badge on a card | events arrived > 60 s after they happened (outbox replay after an outage, or clock skew) |
 | Codex sessions missing | run `/hooks` in Codex and trust the entries; check `hooks = true` in `config.toml` |
 | Claude sessions missing | `jq '.hooks | keys' ~/.claude/settings.json` should list the hook events; restart the session |
-| oh-my-pi sessions missing | `ls ~/.omp/agent/extensions/job-farm-mon.ts`; the extension registers nothing when endpoint/token are missing or `JFM_DISABLE=1` |
+| oh-my-pi sessions missing | `ls ~/.omp/agent/extensions/job-farm-monitor.ts`; the extension registers nothing when endpoint/token are missing or `JFM_DISABLE=1` |
 
 `$XDG_STATE_HOME` / `$XDG_CONFIG_HOME` replace `~/.local/state` / `~/.config`
 when set.

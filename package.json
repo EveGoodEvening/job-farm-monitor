@@ -1,5 +1,5 @@
 {
-  "name": "job-farm-mon",
+  "name": "job-farm-monitor",
   "version": "0.1.0",
   "private": true,
   "description": "Multi-host dashboard for coding agent session states (Claude Code, Codex CLI, oh-my-pi)",

@@ -38,7 +38,7 @@ function seed(): SessionView[] {
   return [
     base({
       host: 'kvm16188', agent: 'claude', sessionId: 'a1b2c3d4-1', state: 'blocked', stateKind: 'permission',
-      project: 'job-farm-mon', title: 'implement the web dashboard', stateMsg: 'Bash: rm -rf packages/web/dist && npm run build',
+      project: 'job-farm-monitor', title: 'implement the web dashboard', stateMsg: 'Bash: rm -rf packages/web/dist && npm run build',
       stateSince: t - 4 * MIN, lastEventAt: t - 4 * MIN, herdrPaneId: 'w1:p3', model: 'claude-opus-5-5',
     }),
     base({
@@ -55,7 +55,7 @@ function seed(): SessionView[] {
       ],
     }),
     base({
-      host: 'kvm16188', agent: 'claude', sessionId: 'w2', state: 'working', project: 'job-farm-mon',
+      host: 'kvm16188', agent: 'claude', sessionId: 'w2', state: 'working', project: 'job-farm-monitor',
       title: 'write store tests for libsql driver', lastEventAt: t - 6_000,
       subagents: [{ id: 'sa1', type: 'Explore', since: t - MIN }, { id: 'sa2', type: 'Plan', since: t - 30_000 }],
       progress: [

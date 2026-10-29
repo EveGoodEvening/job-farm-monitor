@@ -1,4 +1,4 @@
-// Thin client for the job-farm-mon HTTP API (docs/contracts.md section 4) plus
+// Thin client for the job-farm-monitor HTTP API (docs/contracts.md section 4) plus
 // the 3-second poller. Same-origin only: the cookie `jfm_s` carries read auth.
 import { POLL_INTERVAL_MS } from '@jfm/core';
 import type { EndedWindow, SessionView, StateResponse } from '@jfm/core';

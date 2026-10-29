@@ -1,4 +1,4 @@
-# job-farm-mon shared contracts
+# job-farm-monitor shared contracts
 
 Authoritative cross-package contracts. Types live in
 `packages/core/src/types.ts`, constants in `packages/core/src/constants.ts`
@@ -69,7 +69,7 @@ web (`packages/web/src/`): `main.tsx`, `app.tsx`, `api.ts`, `state.ts`,
 Imports only types + constants from `@jfm/core`.
 
 local: `bin/jfm-emit`, `claude.hooks.json`, `codex.hooks.json`,
-`omp/job-farm-mon.ts`, `install.sh`, `merge-hooks.jq`, `test/*.test.mjs`
+`omp/job-farm-monitor.ts`, `install.sh`, `merge-hooks.jq`, `test/*.test.mjs`
 (node --test), `test/*.test.ts` (vitest).
 
 ## 2. Wire envelope (local reporters -> `POST /api/ingest`)
@@ -318,12 +318,12 @@ tests agree. Timestamps are epoch ms numbers.
 
 ### Local reporter config
 
-`~/.config/job-farm-mon/config` (0600, sh `KEY=value` lines, parsed not
+`~/.config/job-farm-monitor/config` (0600, sh `KEY=value` lines, parsed not
 sourced; env vars win): `JFM_ENDPOINT` (base origin, e.g.
 `https://jfm.example.workers.dev`; reporters POST to
 `${JFM_ENDPOINT}/api/ingest`), `JFM_WRITE_TOKEN`, `JFM_DISABLE=1`,
 `JFM_REDACT=1`, `JFM_RECORD_DIR`. State:
-`~/.local/state/job-farm-mon/{outbox,markers,lock.d,record,rejected}`, log
+`~/.local/state/job-farm-monitor/{outbox,markers,lock.d,record,rejected}`, log
 `emit.log`.
 
 `JFM_DISABLE=1` prevents shell collection and flushing: queued events and cleanup

@@ -7,7 +7,7 @@ export type Lang = 'zh' | 'en';
 export const LANGS: readonly Lang[] = ['zh', 'en'];
 
 const en = {
-  appName: 'job-farm-mon',
+  appName: 'job-farm-monitor',
   // states
   'state.idle': 'Idle',
   'state.working': 'Working',
@@ -75,7 +75,7 @@ const en = {
 export type MsgKey = keyof typeof en;
 
 const zh: Record<MsgKey, string> = {
-  appName: 'job-farm-mon',
+  appName: 'job-farm-monitor',
   'state.idle': '空闲',
   'state.working': '进行中',
   'state.blocked': '等待中',
