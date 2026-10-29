@@ -1,0 +1,12 @@
+{
+  // Type-checks local tests/helpers. local/omp/*.ts is `// @ts-nocheck` (loaded by omp).
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["omp/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+}

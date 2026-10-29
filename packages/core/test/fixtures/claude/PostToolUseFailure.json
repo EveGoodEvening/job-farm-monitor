@@ -1,0 +1,20 @@
+{
+  "session_id": "4f47fd94-52ac-48ab-9f14-7d38acbf1fbd",
+  "transcript_path": "/home/user/.claude/projects/-home-user-proj/4f47fd94-52ac-48ab-9f14-7d38acbf1fbd.jsonl",
+  "cwd": "/home/user/proj",
+  "prompt_id": "5ea40b42-e143-4da4-bb96-5558d11a7b69",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUseFailure",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "cat ./missing-file.txt",
+    "description": "Print contents of missing-file.txt in working directory"
+  },
+  "tool_use_id": "toolu_013HmSgvvN5JgJnoz5Y7KmPo",
+  "error": "Exit code 1\ncat: ./missing-file.txt: No such file or directory",
+  "is_interrupt": false,
+  "duration_ms": 61
+}

@@ -1,0 +1,31 @@
+{
+  "session_id": "01a186f2-6d25-7cb2-8154-6bf287e0ae22",
+  "turn_id": "01a186f5-b337-75b0-ab50-22060614048f",
+  "transcript_path": "/home/user/.codex/sessions/2026/10/29/rollout-2026-10-29T09-16-37-01a186f2-6d25-7cb2-8154-6bf287e0ae22.jsonl",
+  "cwd": "/home/user/proj",
+  "hook_event_name": "PostToolUse",
+  "model": "gpt-6-luna",
+  "permission_mode": "default",
+  "tool_name": "request_user_input",
+  "tool_input": {
+    "questions": [
+      {
+        "header": "Color",
+        "id": "color",
+        "question": "Which color?",
+        "options": [
+          {
+            "label": "red",
+            "description": "Choose red."
+          },
+          {
+            "label": "blue",
+            "description": "Choose blue."
+          }
+        ]
+      }
+    ]
+  },
+  "tool_response": "{\"answers\":{\"color\":{\"answers\":[\"red\"]}}}",
+  "tool_use_id": "call_e42a6e02c66d432f9a5909b06c672559"
+}

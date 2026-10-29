@@ -1,0 +1,30 @@
+{
+  "session_id": "36ee3903-dcea-4455-9f16-3ae2070079a6",
+  "transcript_path": "/home/user/.claude/projects/-home-user-proj/36ee3903-dcea-4455-9f16-3ae2070079a6.jsonl",
+  "cwd": "/home/user/proj",
+  "prompt_id": "26424cd8-4c6b-4600-bae0-b9152c232221",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PermissionRequest",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "touch perm-test.txt",
+    "description": "Create empty file perm-test.txt"
+  },
+  "permission_suggestions": [
+    {
+      "type": "addDirectories",
+      "directories": [
+        "/home/user/proj"
+      ],
+      "destination": "session"
+    },
+    {
+      "type": "setMode",
+      "mode": "acceptEdits",
+      "destination": "session"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  // Node-side code: app, auth, backend, Node + Vercel entries, node tests.
+  // Cloudflare-only files are checked by tsconfig.worker.json instead.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
+    "types": ["node"],
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "*.config.ts", "api/**/*.ts"],
+  "exclude": [
+    "src/entry.cloudflare.ts",
+    "src/drivers/do-sqlite.ts",
+    "test/worker*.test.ts",
+    "test/worker/**",
+    "vitest.workers.config.ts",
+    "node_modules",
+    "dist",
+    "public"
+  ]
+}

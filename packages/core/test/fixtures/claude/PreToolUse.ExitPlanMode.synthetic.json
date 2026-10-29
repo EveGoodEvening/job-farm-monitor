@@ -1,0 +1,12 @@
+{
+  "session_id": "68d9d8ac-3e39-48f1-a8ea-f5b054899d8d",
+  "transcript_path": "/home/user/.claude/projects/-home-user-proj/68d9d8ac-3e39-48f1-a8ea-f5b054899d8d.jsonl",
+  "cwd": "/home/user/proj",
+  "permission_mode": "auto",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "ExitPlanMode",
+  "tool_input": {
+    "plan": "1. Add schema\n2. Add Store"
+  },
+  "tool_use_id": "toolu_01SyntheticExitPlanMode"
+}

@@ -1,0 +1,40 @@
+{
+  "name": "@jfm/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pure TypeScript core: types, envelope parsing, normalizers, reducer, schema, Store, SQL drivers",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@jfm/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./drivers/node-sqlite": {
+      "@jfm/source": "./src/drivers/node-sqlite.ts",
+      "types": "./dist/drivers/node-sqlite.d.ts",
+      "default": "./dist/drivers/node-sqlite.js"
+    },
+    "./drivers/libsql": {
+      "@jfm/source": "./src/drivers/libsql.ts",
+      "types": "./dist/drivers/libsql.d.ts",
+      "default": "./dist/drivers/libsql.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.pure.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@libsql/client": "0.18.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "vitest": "5.0.5"
+  }
+}

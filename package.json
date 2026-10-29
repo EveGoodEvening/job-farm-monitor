@@ -1,0 +1,42 @@
+{
+  "name": "job-farm-mon",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-host dashboard for coding agent session states (Claude Code, Codex CLI, oh-my-pi)",
+  "type": "module",
+  "engines": {
+    "node": "^24"
+  },
+  "workspaces": [
+    "packages/*",
+    "local"
+  ],
+  "scripts": {
+    "build": "npm run build -w @jfm/core && npm run build -w @jfm/server && npm run build -w @jfm/web",
+    "build:vercel": "npm run build",
+    "typecheck": "npm run typecheck -w @jfm/core -w @jfm/server -w @jfm/web -w @jfm/local",
+    "lint": "eslint .",
+    "test": "npm run test -w @jfm/core -w @jfm/server -w @jfm/web -w @jfm/local",
+    "test:workers": "npm run test:workers -w @jfm/server",
+    "dev:node": "JFM_DB_PATH=./data/dev.sqlite tsx watch packages/server/src/entry.node.ts",
+    "dev:web": "npm run dev -w @jfm/web",
+    "dev:cf": "npm run dev:cf -w @jfm/server",
+    "deploy:cf": "npm run build -w @jfm/core && npm run build -w @jfm/web && npm run deploy:cf -w @jfm/server",
+    "seed": "node scripts/seed.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.2",
+    "eslint": "10.13.0",
+    "globals": "17.13.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.0.5"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "esbuild@0.25.12": true,
+    "workerd@1.20261023.1": true
+  }
+}

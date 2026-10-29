@@ -1,0 +1,143 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/jfm-emit codex",
+            "async": true,
+            "timeout": 5,
+            "statusMessage": "job-farm-mon"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/jfm-emit codex",
+            "async": true,
+            "timeout": 5,
+            "statusMessage": "job-farm-mon"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/jfm-emit codex",
+            "async": true,
+            "timeout": 5,
+            "statusMessage": "job-farm-mon"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/jfm-emit codex",
+            "async": true,
+            "timeout": 5,
+            "statusMessage": "job-farm-mon"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/jfm-emit codex",
+            "async": true,
+            "timeout": 5,
+            "statusMessage": "job-farm-mon"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/jfm-emit codex",
+            "async": true,
+            "timeout": 5,
+            "statusMessage": "job-farm-mon"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/jfm-emit codex",
+            "async": true,
+            "timeout": 5,
+            "statusMessage": "job-farm-mon"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/jfm-emit codex",
+            "async": true,
+            "timeout": 5,
+            "statusMessage": "job-farm-mon"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/jfm-emit codex",
+            "async": true,
+            "timeout": 5,
+            "statusMessage": "job-farm-mon"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/jfm-emit codex",
+            "timeout": 1
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/jfm-emit codex",
+            "timeout": 1
+          }
+        ]
+      }
+    ]
+  }
+}

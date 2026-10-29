@@ -1,0 +1,19 @@
+# Sanitized copy of a real ~/.codex/config.toml (projects and model list trimmed).
+model = "gpt-6-astra"
+model_reasoning_effort = "max"
+
+[features]
+# Loads ~/.codex/hooks.json; review/trust the heavy-gate hook with /hooks once.
+hooks = true
+
+[projects."/root/example"]
+trust_level = "trusted"
+
+[hooks.state]
+
+[hooks.state."/root/.codex/hooks.json:pre_tool_use:0:0"]
+enabled = true
+trusted_hash = "sha256:37ff4770d880a1a7e4754c72dec0d8b86366c392d8d1676faf3b1ae9283cf30a"
+
+[hooks.state."/root/.codex/hooks.json:session_start:0:0"]
+trusted_hash = "sha256:67202705568cae30163668f59d5dcf9131d3ecfa370afe8cd2626e39b86a3493"

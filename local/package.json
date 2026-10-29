@@ -1,0 +1,14 @@
+{
+  "name": "@jfm/local",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local reporters: jfm-emit (POSIX sh), Claude/Codex hook snippets, oh-my-pi extension, installer",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests && node --test \"test/**/*.test.mjs\""
+  },
+  "devDependencies": {
+    "vitest": "5.0.5"
+  }
+}

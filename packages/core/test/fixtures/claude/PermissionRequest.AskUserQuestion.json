@@ -1,0 +1,32 @@
+{
+  "session_id": "68d9d8ac-3e39-48f1-a8ea-f5b054899d8d",
+  "transcript_path": "/home/user/.claude/projects/-home-user-proj/68d9d8ac-3e39-48f1-a8ea-f5b054899d8d.jsonl",
+  "cwd": "/home/user/proj",
+  "scratchpad_dir": "/tmp/claude-0/-home-user-proj/68d9d8ac-3e39-48f1-a8ea-f5b054899d8d/scratchpad",
+  "prompt_id": "9bdb5186-c193-4639-9d54-67b0a6170f65",
+  "permission_mode": "auto",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PermissionRequest",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "Which color?",
+        "header": "Color",
+        "options": [
+          {
+            "label": "red",
+            "description": "Red"
+          },
+          {
+            "label": "blue",
+            "description": "Blue"
+          }
+        ],
+        "multiSelect": false
+      }
+    ]
+  }
+}

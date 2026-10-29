@@ -1,0 +1,14 @@
+{
+  "session_id": "01a186f2-6d25-7cb2-8154-6bf287e0ae22",
+  "turn_id": "01a186f4-eed9-7263-bff8-9bbe96e0d7b9",
+  "transcript_path": "/home/user/.codex/sessions/2026/10/29/rollout-2026-10-29T09-16-37-01a186f2-6d25-7cb2-8154-6bf287e0ae22.jsonl",
+  "cwd": "/home/user/proj",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-6-luna",
+  "permission_mode": "default",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "touch /home/user/jfm-perm-probe.txt"
+  },
+  "tool_use_id": "exec-e3f1ceb1-f2f8-4c56-ad06-1635b0e5cbba"
+}

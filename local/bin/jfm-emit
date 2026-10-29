@@ -1,0 +1,610 @@
+#!/bin/sh
+# jfm-emit - job-farm-mon local reporter (POSIX sh + jq + curl).
+#
+# Usage:
+#   jfm-emit <claude|codex|omp>          hook mode: read hook JSON on stdin, queue an
+#                                       envelope in the outbox, start a background flush
+#   jfm-emit --record <claude|codex|omp> same, and also save the raw stdin under
+#                                       $JFM_RECORD_DIR (default <state>/record)
+#   jfm-emit --flush                    send queued envelopes (POST ${JFM_ENDPOINT}/api/ingest)
+#   jfm-emit --check                    POST [] and print the HTTP status + body
+#
+# Config: ${XDG_CONFIG_HOME:-~/.config}/job-farm-mon/config, sh-style KEY=value lines
+# (JFM_ENDPOINT, JFM_WRITE_TOKEN, JFM_DISABLE, JFM_REDACT, JFM_RECORD_DIR). The file is
+# parsed, never sourced; environment variables win over it.
+# State:  ${XDG_STATE_HOME:-~/.local/state}/job-farm-mon/{outbox,markers,lock.d,record,rejected,emit.log}
+#
+# Hook mode never blocks the agent: it always exits 0 (never 2) and returns after a few
+# small forks; network I/O happens only in the detached --flush process.
+# Test knob: JFM_NO_FLUSH=1 queues without starting the background flush.
+
+# Locked constants (packages/core/src/constants.ts).
+TOOL_THROTTLE_MS=2000   # TOOL_THROTTLE_MS
+OUTBOX_MAX=500          # OUTBOX_MAX
+BATCH_MAX=100           # INGEST_MAX_BATCH
+LOG_MAX_BYTES=1048576
+STR_MAX=2048            # chars kept per string leaf of a payload
+ARR_MAX=64              # items kept per array of a payload
+PAYLOAD_MAX=16000       # chars (JSON) above which a payload is cut harder
+BATCH_MAX_BYTES=1000000 # bytes per POST (Vercel rejects bodies > 4.5 MB)
+REJECT_AFTER=3          # a lone envelope failing this often (5xx) is set aside
+
+umask 077
+
+NL='
+'
+US=$(printf '\037')
+
+cfg_file="${XDG_CONFIG_HOME:-$HOME/.config}/job-farm-mon/config"
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/job-farm-mon"
+outbox="$state_dir/outbox"
+markers="$state_dir/markers"
+lock_dir="$state_dir/lock.d"
+steal_dir="$state_dir/lock.steal.d"
+rejected_dir="$state_dir/rejected"
+log_file="$state_dir/emit.log"
+
+# Run the background flusher with the same shell family we are running under.
+self_sh=sh
+[ -n "${BASH_VERSION:-}" ] && self_sh=bash
+
+usage() {
+  cat <<'EOF'
+usage: jfm-emit <claude|codex|omp>           (hook mode, JSON on stdin)
+       jfm-emit --record <claude|codex|omp>  (hook mode + save raw stdin)
+       jfm-emit --flush                      (send queued events)
+       jfm-emit --check                      (verify endpoint + write token)
+EOF
+}
+
+log() {
+  [ -d "$state_dir" ] || mkdir -p "$state_dir" 2>/dev/null || return 0
+  printf '%s [%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" "$*" >>"$log_file" 2>/dev/null
+}
+
+# --- config -------------------------------------------------------------------------
+
+load_config() {
+  [ -r "$cfg_file" ] || return 0
+  # Remember which keys came from the environment (set, even if empty): those win.
+  _env_keys=
+  for _k in JFM_ENDPOINT JFM_WRITE_TOKEN JFM_DISABLE JFM_REDACT JFM_RECORD_DIR; do
+    eval "_isset=\${$_k+x}"
+    [ -n "$_isset" ] && _env_keys="$_env_keys $_k "
+  done
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    _line=${_line#"${_line%%[![:space:]]*}"}
+    case $_line in export\ *) _line=${_line#export } ;; esac
+    case $_line in
+      JFM_ENDPOINT=* | JFM_WRITE_TOKEN=* | JFM_DISABLE=* | JFM_REDACT=* | JFM_RECORD_DIR=*) ;;
+      *) continue ;;
+    esac
+    _k=${_line%%=*}
+    _v=${_line#*=}
+    _v=${_v%"${_v##*[![:space:]]}"}
+    case $_v in
+      \"*\") _v=${_v#\"}; _v=${_v%\"} ;;
+      \'*\') _v=${_v#\'}; _v=${_v%\'} ;;
+    esac
+    case $_env_keys in *" $_k "*) continue ;; esac
+    eval "$_k=\$_v"
+  done <"$cfg_file"
+}
+
+configured() {
+  [ -n "${JFM_ENDPOINT:-}" ] && [ -n "${JFM_WRITE_TOKEN:-}" ]
+}
+
+# --- small helpers (avoid forks on the hot path) --------------------------------------
+
+now_ms() {
+  _t=$(date +%s%N 2>/dev/null)
+  case $_t in
+    '' | *[!0-9]*) _t="$(date +%s)000" ;; # macOS/BSD date: no %N
+    *) _t=${_t%??????} ;;
+  esac
+}
+
+gen_id() {
+  _id=
+  if [ -r /proc/sys/kernel/random/uuid ]; then
+    read -r _id </proc/sys/kernel/random/uuid || _id=
+  fi
+  if [ -z "$_id" ] && command -v uuidgen >/dev/null 2>&1; then
+    _id=$(uuidgen 2>/dev/null | tr 'A-Z' 'a-z')
+  fi
+  if [ -z "$_id" ]; then
+    _id="$(date +%s%N)-$$-$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  fi
+}
+
+spawn_flush() {
+  [ "${JFM_NO_FLUSH:-}" = 1 ] && return 0
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$self_sh" "$0" --flush </dev/null >/dev/null 2>&1 &
+  else
+    nohup "$self_sh" "$0" --flush </dev/null >/dev/null 2>&1 &
+  fi
+}
+
+# --- hook mode ------------------------------------------------------------------------
+
+# One jq call: line 1 = info fields joined by \037, line 2 = the envelope.
+# Info: event, session id, tool name, notification type, agent key (main | a-<agent_id>),
+# tool fingerprint (tool name + start of the tool input, used to pair a blocked marker
+# with the PostToolUse of the same call).
+#
+# Size cap: the server only needs summaries, so every string leaf is cut to
+# $str_max chars and every array to $arr_max items; if the payload is still over
+# $payload_max chars it is cut harder, and finally reduced to the metadata fields.
+# A multi-MB Write/Edit or pasted prompt can never become a multi-MB envelope.
+#
+# JFM_REDACT=1 keeps only the metadata fields (a whitelist): tool_input becomes {},
+# prompt/message/reply text becomes "", cwd is reduced to its last path component
+# (the project name), and everything else (error text, permission_suggestions,
+# custom_instructions, *transcript_path, ...) is dropped.
+# shellcheck disable=SC2016
+JQ_EMIT='
+def safe: tostring | gsub("[^A-Za-z0-9._-]"; "_") | .[0:120];
+def oneline: tostring | gsub("[\u001f\n\r]"; " ");
+def clipstr($n): if length > $n then .[0:$n] + "…" else . end;
+def shrink($n; $m):
+  if type == "string" then clipstr($n)
+  elif type == "array" then (if length > $m then .[0:$m] else . end) | map(shrink($n; $m))
+  elif type == "object" then with_entries(.value |= shrink($n; $m))
+  else . end;
+def size: tojson | length;
+def meta_keys: {
+  hook_event_name: 1, session_id: 1, tool_name: 1, notification_type: 1, agent_id: 1,
+  agent_type: 1, agent_role: 1, subagent_id: 1, thread_id: 1, reason: 1, source: 1,
+  model: 1, turn_id: 1, tool_use_id: 1, trigger: 1, is_interrupt: 1, permission_mode: 1,
+  stop_hook_active: 1, cwd: 1,
+  type: 1, sessionId: 1, agentId: 1, agentType: 1, parentId: 1, kind: 1, tool: 1 };
+def text_keys: ["prompt", "last_assistant_message", "message", "text", "msg", "summary"];
+def only_meta:
+  . as $o
+  | with_entries(select(meta_keys[.key] != null))
+  | reduce text_keys[] as $k (.; if $o | has($k) then .[$k] = "" else . end)
+  | if $o | has("tool_input") then .tool_input = {} else . end;
+def redact:
+  only_meta
+  | if (.cwd | type) == "string" then .cwd |= (sub("/+$"; "") | split("/") | last // "") else . end
+  | if has("reason") then .reason |= (tostring | .[0:64]) else . end;
+def fingerprint:
+  (.tool_name // "" | oneline) + "|"
+  + ((.tool_input // null)
+     | if type == "object" then del(.description) | to_entries | sort_by(.key) | from_entries
+       else . end
+     | tojson | .[0:400] | oneline);
+if type != "object" then error("payload is not an object") else . end
+| (.hook_event_name // .type // "unknown") as $ev
+| (.session_id // .sessionId // "") as $sid
+| (.agent_id // "" | tostring) as $aid
+| ( [ ($ev | safe),
+      (if $sid == "" then "_none" else ($sid | safe) end),
+      (.tool_name // "" | oneline),
+      (.notification_type // "" | oneline),
+      (if $aid == "" then "main" else "a-" + ($aid | safe) end),
+      fingerprint ]
+    | join("\u001f") ),
+  ( del(.tool_response)
+    | if $redact == "1" then redact else . end
+    | shrink($str_max; $arr_max)
+    | if size > $payload_max then shrink(256; 16) else . end
+    | if size > $payload_max then only_meta | shrink(256; 16) else . end
+    | { v: 1, id: $id, ts: $ts, agent: $agent, hostname: $host, pid: $pid,
+        env: ({ herdr_pane_id: $hp, herdr_tab_id: $ht, herdr_workspace_id: $hw, tmux_pane: $tp }
+              | with_entries(select(.value != ""))),
+        payload: . }
+    | tojson )
+'
+
+emit() {
+  agent=$1
+  case $agent in
+    claude | codex | omp) ;;
+    *) usage >&2; exit 64 ;;
+  esac
+  # Hook mode prints nothing, on stderr either (an unwritable state dir must stay quiet).
+  exec 2>/dev/null
+  if [ -t 0 ]; then input=; else input=$(cat); fi
+  [ "${JFM_DISABLE:-}" = 1 ] && exit 0
+  [ -n "$input" ] || exit 0
+  [ -n "${JFM_RECORD_DIR:-}" ] || configured || exit 0
+
+  now_ms; ts=$_t
+  gen_id; id=$_id
+  host=$(uname -n 2>/dev/null)
+  pid=${PPID:-0}
+  case $pid in '' | *[!0-9]*) pid=0 ;; esac
+
+  out=$(printf '%s' "$input" | jq -r \
+    --arg id "$id" --argjson ts "$ts" --arg agent "$agent" --arg host "$host" \
+    --argjson pid "$pid" --arg redact "${JFM_REDACT:-}" \
+    --arg hp "${HERDR_PANE_ID:-}" --arg ht "${HERDR_TAB_ID:-}" \
+    --arg hw "${HERDR_WORKSPACE_ID:-}" --arg tp "${TMUX_PANE:-}" \
+    --argjson str_max "$STR_MAX" --argjson arr_max "$ARR_MAX" \
+    --argjson payload_max "$PAYLOAD_MAX" \
+    "$JQ_EMIT" 2>/dev/null)
+  if [ $? -ne 0 ] || [ -z "$out" ]; then
+    out=
+    ev=invalid sid=_none tool= ntype= akey=main fp=
+  else
+    info=${out%%"$NL"*}
+    envelope=${out#*"$NL"}
+    IFS=$US read -r ev sid tool ntype akey fp <<EOF
+$info
+EOF
+  fi
+
+  # Recording mode (T10): raw stdin as <agent>-<hook_event_name>-<epoch_ms>.json.
+  if [ -n "${JFM_RECORD_DIR:-}" ]; then
+    case $JFM_RECORD_DIR in "~/"*) JFM_RECORD_DIR="$HOME/${JFM_RECORD_DIR#\~/}" ;; esac
+    [ -d "$JFM_RECORD_DIR" ] || mkdir -p "$JFM_RECORD_DIR" 2>/dev/null
+    rec="$JFM_RECORD_DIR/$agent-$ev-$ts.json"
+    [ -e "$rec" ] && rec="$JFM_RECORD_DIR/$agent-$ev-$ts-$$.json"
+    printf '%s\n' "$input" >"$rec" 2>/dev/null
+  fi
+
+  if [ -z "$out" ]; then
+    log "skipped invalid hook payload (agent=$agent)"
+    exit 0
+  fi
+  configured || exit 0
+
+  # Markers. Every write uses printf (a regular builtin): a failed redirection on a
+  # special builtin such as ':' would abort sh with status 2, which blocks the agent.
+  [ -d "$markers" ] || mkdir -p "$markers" "$outbox" 2>/dev/null
+  mk_tool="$markers/$sid.tool"
+  # One blocked marker per (session, agent): subagents share the parent's session_id.
+  # It holds the fingerprint of the call that is waiting ("*" = unknown call, from a
+  # Notification), so only the PostToolUse of that same call clears it; a parallel
+  # tool or a subagent tool finishing meanwhile does not.
+  mk_blk="$markers/$sid@$akey.blocked"
+  # Question tools: blocked marker + no throttle. Codex request_user_input_async
+  # stays open after its own PostToolUse (the answer is a later
+  # UserPromptSubmit), so that PostToolUse is dropped and keeps the marker.
+  is_q=0 is_async_q=0
+  case $tool in
+    AskUserQuestion | ExitPlanMode | request_user_input) is_q=1 ;;
+    request_user_input_async) is_q=1 is_async_q=1 ;;
+  esac
+
+  # 0 when the blocked marker belongs to this call (or to an unknown call).
+  blk_matches() {
+    [ -f "$mk_blk" ] || return 1
+    _bfp=
+    read -r _bfp <"$mk_blk" || :
+    [ "$_bfp" = '*' ] || [ "$_bfp" = "$fp" ]
+  }
+
+  case $ev in
+    PreToolUse)
+      if [ "$is_q" = 1 ]; then
+        printf '%s\n' "$fp" >"$mk_blk" || :
+      else
+        if [ -f "$mk_tool" ]; then
+          last=
+          read -r last <"$mk_tool" || :
+          case $last in
+            '' | *[!0-9]*) ;;
+            *)
+              d=$((ts - last))
+              if [ "$d" -ge 0 ] && [ "$d" -lt "$TOOL_THROTTLE_MS" ]; then exit 0; fi
+              ;;
+          esac
+        fi
+        printf '%s\n' "$ts" >"$mk_tool" || :
+      fi
+      ;;
+    PostToolUse)
+      [ "$is_async_q" = 1 ] && exit 0
+      if [ "$is_q" = 1 ] || blk_matches; then
+        rm -f "$mk_blk"
+      else
+        exit 0
+      fi
+      ;;
+    PostToolUseFailure)
+      # Always sent (it is the "tool failed" progress line); clears its own block.
+      if [ "$is_q" = 1 ] || blk_matches; then rm -f "$mk_blk"; fi
+      ;;
+    PermissionRequest) printf '%s\n' "$fp" >"$mk_blk" || : ;;
+    Notification)
+      case $ntype in
+        permission_prompt | agent_needs_input | elicitation_dialog | elicitation_url_dialog)
+          # Keep the specific call recorded by a PermissionRequest / question PreToolUse.
+          [ -e "$mk_blk" ] || printf '*\n' >"$mk_blk" || :
+          ;;
+      esac
+      ;;
+    UserPromptSubmit | Stop | Interrupt)
+      if [ "$akey" = main ]; then rm -f "$markers/$sid"@*.blocked; else rm -f "$mk_blk"; fi
+      ;;
+    SubagentStop) [ "$akey" = main ] || rm -f "$mk_blk" ;;
+    SessionEnd) rm -f "$markers/$sid"@*.blocked "$mk_tool" ;;
+  esac
+
+  [ -d "$outbox" ] || mkdir -p "$outbox" 2>/dev/null
+  name="$ts-${id%%-*}.json"
+  tmp="$outbox/.$name.tmp"
+  if printf '%s\n' "$envelope" >"$tmp" 2>/dev/null && mv -f "$tmp" "$outbox/$name"; then
+    spawn_flush
+  else
+    rm -f "$tmp" 2>/dev/null
+    log "could not write outbox file $name"
+  fi
+  exit 0
+}
+
+# --- network --------------------------------------------------------------------------
+
+# curl with the token passed through a config on fd 3 (keeps it out of argv / ps).
+jfm_curl() {
+  curl -sS --connect-timeout 5 --max-time 10 -K /dev/fd/3 \
+    -H 'content-type: application/json' "$@" "${JFM_ENDPOINT%/}/api/ingest" 3<<EOF
+header = "Authorization: Bearer $JFM_WRITE_TOKEN"
+EOF
+}
+
+lock_is_stale() { # <minutes>
+  [ -n "$(find "$lock_dir" -prune -mmin +"$1" 2>/dev/null)" ]
+}
+
+lock_acquire() {
+  if mkdir "$lock_dir" 2>/dev/null; then
+    :
+  elif lock_is_stale 1; then
+    # Stale lock (> 60 s without refresh). The takeover is serialized by a second
+    # mkdir lock and staleness is re-checked inside it, so two flushers that both saw
+    # the stale lock cannot both end up holding lock.d.
+    if ! mkdir "$steal_dir" 2>/dev/null; then
+      # A stealer that died mid-takeover leaves an empty dir behind; clear it later.
+      [ -n "$(find "$steal_dir" -prune -mmin +1 2>/dev/null)" ] && rmdir "$steal_dir" 2>/dev/null
+      return 1
+    fi
+    _ok=0
+    if lock_is_stale 1; then
+      _opid=
+      if [ -f "$lock_dir/pid" ]; then read -r _opid <"$lock_dir/pid" || :; fi
+      case $_opid in '' | *[!0-9]*) _opid= ;; esac
+      # A live owner (e.g. a laptop suspended mid-curl) keeps its lock for up to 10 min.
+      if [ -n "$_opid" ] && kill -0 "$_opid" 2>/dev/null && ! lock_is_stale 10; then
+        :
+      else
+        log "removing stale lock (pid ${_opid:-unknown})"
+        rm -rf "$lock_dir"
+        mkdir "$lock_dir" 2>/dev/null && _ok=1
+      fi
+    fi
+    rmdir "$steal_dir" 2>/dev/null
+    [ "$_ok" = 1 ] || return 1
+  else
+    return 1
+  fi
+  echo "$$" >"$lock_dir/pid" 2>/dev/null
+  trap 'lock_drop' EXIT
+  trap 'lock_drop; exit 1' INT TERM HUP
+  return 0
+}
+
+# Remove the lock only while it is still ours (it may have been taken over).
+lock_drop() {
+  _lp=
+  if [ -f "$lock_dir/pid" ]; then read -r _lp <"$lock_dir/pid" 2>/dev/null || :; fi
+  [ "$_lp" = "$$" ] && rm -rf "$lock_dir"
+}
+
+lock_release() {
+  lock_drop
+  trap - EXIT INT TERM HUP
+}
+
+drop_invalid() {
+  for _f do
+    if ! jq -e . "$_f" >/dev/null 2>&1; then
+      rm -f "$_f" ".fail.$_f"
+      log "dropped unparsable outbox file $_f"
+    fi
+  done
+}
+
+# reject <file> <why>: move an envelope the server keeps refusing out of the queue.
+reject() {
+  mkdir -p "$rejected_dir" 2>/dev/null
+  mv -f "$1" "$rejected_dir/$1" 2>/dev/null || rm -f "$1"
+  rm -f ".fail.$1"
+  log "set aside $1 ($2) in $rejected_dir"
+}
+
+# note_failure <file>: count a 5xx for an envelope that failed alone while a newer one
+# went through; set it aside after REJECT_AFTER such failures.
+note_failure() {
+  _c=0
+  if [ -f ".fail.$1" ]; then read -r _c <".fail.$1" || :; fi
+  case $_c in '' | *[!0-9]*) _c=0 ;; esac
+  _c=$((_c + 1))
+  if [ "$_c" -ge "$REJECT_AFTER" ]; then
+    reject "$1" "failed alone $_c times while other events were accepted"
+  else
+    printf '%s\n' "$_c" >".fail.$1" 2>/dev/null || :
+    log "$1 failed alone while a newer event was accepted ($_c/$REJECT_AFTER)"
+  fi
+}
+
+# Returns 0 when the outbox is drained, 1 when sending stopped (retry next time).
+#
+# A batch is at most BATCH_MAX files and BATCH_MAX_BYTES bytes. When a batch of
+# several files fails with an HTTP error (not 401/403), the rest of this run sends one
+# file per POST, so one bad envelope cannot hold back the others:
+#   - 400/413/414/415/422 for a lone file: it can never succeed; set it aside.
+#   - other errors for a lone file: skip it for this run and try the next one. If the
+#     next one is accepted, the skipped one counts a failure (set aside after
+#     REJECT_AFTER); if the next one fails too, the server is down: stop, count nothing.
+flush_rounds() {
+  cd "$outbox" || return 1
+  _bf=".batch.$$.json"
+  _skip=' '
+  _solo=0
+  _suspect=
+  while :; do
+    set -- [0-9]*.json
+    [ -e "$1" ] || return 0
+    if [ $# -gt "$OUTBOX_MAX" ]; then
+      _n=$(($# - OUTBOX_MAX))
+      log "outbox over $OUTBOX_MAX files, dropping $_n oldest"
+      while [ "$_n" -gt 0 ]; do
+        rm -f "$1" ".fail.$1"
+        shift
+        _n=$((_n - 1))
+      done
+    fi
+    _lim=$BATCH_MAX
+    [ "$_solo" = 1 ] && _lim=1
+    _cand=
+    _i=0
+    for _f do
+      case $_skip in *" $_f "*) continue ;; esac
+      _cand="$_cand $_f"
+      _i=$((_i + 1))
+      [ "$_i" -ge "$_lim" ] && break
+    done
+    [ -n "$_cand" ] || return 1
+    # Byte cap (one wc for all candidates; its lines follow the argument order).
+    _batch=
+    _n=0
+    _bytes=0
+    while read -r _sz _f; do
+      case $_f in [0-9]*.json) ;; *) continue ;; esac
+      case $_sz in '' | *[!0-9]*) continue ;; esac
+      [ "$_n" -gt 0 ] && [ $((_bytes + _sz)) -gt "$BATCH_MAX_BYTES" ] && break
+      _batch="$_batch $_f"
+      _n=$((_n + 1))
+      _bytes=$((_bytes + _sz))
+    done <<EOF
+$(wc -c $_cand 2>/dev/null)
+EOF
+    if [ -z "$_batch" ]; then
+      _batch=$_cand
+      _n=$_i
+    fi
+    # shellcheck disable=SC2086
+    if ! jq -c -s . $_batch >"$_bf" 2>/dev/null; then
+      rm -f "$_bf"
+      # shellcheck disable=SC2086
+      drop_invalid $_batch
+      continue
+    fi
+    _code=$(jfm_curl --data-binary @"$_bf" -o /dev/null -w '%{http_code}' 2>>"$log_file")
+    rm -f "$_bf"
+    touch "$lock_dir" 2>/dev/null
+    case $_code in
+      2??)
+        for _f in $_batch; do rm -f "$_f" ".fail.$_f"; done
+        if [ -n "$_suspect" ]; then
+          note_failure "$_suspect"
+          _suspect=
+        fi
+        _solo=0
+        ;;
+      401 | 403)
+        log "ingest rejected the write token (HTTP $_code); keeping $# queued events"
+        return 1
+        ;;
+      '' | 000)
+        log "ingest unreachable (no HTTP response); keeping $# queued events"
+        return 1
+        ;;
+      *)
+        if [ "$_n" -gt 1 ]; then
+          log "ingest failed (HTTP $_code) for a batch of $_n; retrying one at a time"
+          _solo=1
+          continue
+        fi
+        _f=${_batch# }
+        case $_code in
+          400 | 413 | 414 | 415 | 422)
+            reject "$_f" "HTTP $_code"
+            ;;
+          *)
+            if [ -n "$_suspect" ]; then
+              log "ingest failed (HTTP $_code); keeping $# queued events"
+              return 1
+            fi
+            log "ingest failed (HTTP $_code) for $_f; trying the next event"
+            _suspect=$_f
+            _skip="$_skip$_f "
+            _solo=1
+            ;;
+        esac
+        ;;
+    esac
+  done
+}
+
+flush() {
+  configured || return 0
+  [ -d "$outbox" ] || return 0
+  if [ -f "$log_file" ] && [ "$(wc -c <"$log_file")" -gt "$LOG_MAX_BYTES" ]; then
+    mv -f "$log_file" "$log_file.1"
+  fi
+  [ -d "$markers" ] && find "$markers" -type f -mmin +1440 -exec rm -f {} + 2>/dev/null
+  [ -d "$rejected_dir" ] && find "$rejected_dir" -type f -mtime +7 -exec rm -f {} + 2>/dev/null
+  while :; do
+    lock_acquire || return 0
+    flush_rounds
+    _rc=$?
+    lock_release
+    [ "$_rc" -eq 0 ] || return 1
+    # A hook may have queued a file while we held the lock and its flusher gave up.
+    set -- "$outbox"/[0-9]*.json
+    [ -e "$1" ] || return 0
+  done
+}
+
+check() {
+  if ! configured; then
+    echo "jfm-emit: JFM_ENDPOINT and JFM_WRITE_TOKEN must be set (config: $cfg_file)" >&2
+    exit 2
+  fi
+  _resp=$(jfm_curl --data-binary '[]' -w "$NL%{http_code}")
+  _crc=$?
+  _code=${_resp##*"$NL"}
+  _body=${_resp%"$NL"*}
+  [ "$_body" = "$_resp" ] && _body=
+  echo "endpoint: ${JFM_ENDPOINT%/}/api/ingest"
+  echo "HTTP ${_code:-000} ${_body}"
+  [ "$_crc" -eq 0 ] || echo "jfm-emit: curl exited with status $_crc" >&2
+  case $_code in 2??) exit 0 ;; *) exit 1 ;; esac
+}
+
+# --- main -----------------------------------------------------------------------------
+
+case ${1:-} in
+  --flush)
+    load_config
+    flush
+    exit $?
+    ;;
+  --check)
+    load_config
+    check
+    ;;
+  --record)
+    shift
+    load_config
+    : "${JFM_RECORD_DIR:=$state_dir/record}"
+    emit "${1:-}"
+    ;;
+  -h | --help)
+    usage
+    ;;
+  claude | codex | omp)
+    load_config
+    emit "$1"
+    ;;
+  *)
+    usage >&2
+    exit 64
+    ;;
+esac

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.sqlite*
+dev.db*
+.env*
+!.env.example
+.dev.vars*
+.wrangler/
+.vercel/
+packages/server/public/
+/data/
+packages/server/data/
+.DS_Store

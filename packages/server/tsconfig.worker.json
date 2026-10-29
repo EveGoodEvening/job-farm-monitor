@@ -1,0 +1,14 @@
+{
+  // Cloudflare Worker code (and the shared app it imports) under workerd types.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types"]
+  },
+  "include": [
+    "src/entry.cloudflare.ts",
+    "src/drivers/do-sqlite.ts",
+    "test/worker*.test.ts",
+    "test/worker/**/*.ts"
+  ]
+}

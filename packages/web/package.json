@@ -1,0 +1,24 @@
+{
+  "name": "@jfm/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Preact dashboard (static build shared by all three platforms)",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@jfm/core": "*",
+    "@preact/signals": "2.11.4",
+    "preact": "11.1.0"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "2.10.6",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}

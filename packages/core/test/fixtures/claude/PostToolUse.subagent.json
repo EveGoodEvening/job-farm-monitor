@@ -1,0 +1,29 @@
+{
+  "session_id": "7c86ee5c-c8c5-439f-ad46-d0fdfc54acbc",
+  "transcript_path": "/home/user/.claude/projects/-home-user-proj/7c86ee5c-c8c5-439f-ad46-d0fdfc54acbc.jsonl",
+  "cwd": "/home/user/proj",
+  "prompt_id": "39ff86a3-aab7-4b02-8629-6ecb09b53ede",
+  "permission_mode": "default",
+  "agent_id": "a986ba181051e8e8a",
+  "agent_type": "Explore",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Read",
+  "tool_input": {
+    "file_path": "/home/user/proj/hello.txt"
+  },
+  "tool_response": {
+    "type": "text",
+    "file": {
+      "filePath": "/home/user/proj/hello.txt",
+      "content": "hi\n",
+      "numLines": 2,
+      "startLine": 1,
+      "totalLines": 2
+    }
+  },
+  "tool_use_id": "toolu_01LNtZt8eNrppfkLfv5FFtB5",
+  "duration_ms": 4
+}

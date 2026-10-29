@@ -1,0 +1,11 @@
+{
+  // Purity guard: the "." entry (and everything it imports) must compile
+  // without Node types, because the Cloudflare Worker and browser import it.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
+    "types": [],
+    "noUncheckedSideEffectImports": true
+  },
+  "files": ["src/index.ts"]
+}

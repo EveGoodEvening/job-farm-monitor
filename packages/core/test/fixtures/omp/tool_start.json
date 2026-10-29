@@ -1,0 +1,6 @@
+{
+  "type": "tool_start",
+  "sessionId": "omp-sess-2b7e91c4",
+  "tool": "bash",
+  "summary": "npm run typecheck -w @jfm/core"
+}

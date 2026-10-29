@@ -1,0 +1,14 @@
+{
+  "session_id": "01a186f2-6d25-7cb2-8154-6bf287e0ae22",
+  "turn_id": "01a186f2-b00e-7e93-b830-24099b49e5ae",
+  "transcript_path": "/home/user/.codex/sessions/2026/10/29/rollout-2026-10-29T09-16-37-01a186f2-6d25-7cb2-8154-6bf287e0ae22.jsonl",
+  "agent_transcript_path": "/home/user/.codex/sessions/2026/10/29/rollout-2026-10-29T09-16-54-01a186f2-affe-7b03-9c7e-e0e0eb4b9642.jsonl",
+  "cwd": "/home/user/proj",
+  "hook_event_name": "SubagentStop",
+  "model": "gpt-6-luna",
+  "permission_mode": "default",
+  "stop_hook_active": false,
+  "agent_id": "01a186f2-affe-7b03-9c7e-e0e0eb4b9642",
+  "agent_type": "default",
+  "last_assistant_message": "`cat hello.txt` output: `hi`"
+}

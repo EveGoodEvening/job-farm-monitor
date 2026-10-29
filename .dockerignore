@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/.wrangler
+**/.vercel
+**/*.sqlite*
+**/dev.db*
+**/.env*
+**/.dev.vars*
+packages/server/public
+data
+.git

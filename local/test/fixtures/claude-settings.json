@@ -1,0 +1,39 @@
+{
+  "theme": "dark",
+  "model": "opus",
+  "alwaysThinkingEnabled": true,
+  "env": {
+    "CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS": "4"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm test:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=$(jq -r '.tool_input.command // \"\"'); if printf '%s\\n' \"$cmd\" | grep -Eq '(^|[;&|({][[:space:]]*)git[[:space:]]+commit([[:space:]]|$)' && printf '%s\\n' \"$cmd\" | grep -Eiq 'Co-Authored-By|noreply@anthropic\\.com|Generated with'; then printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked git commit because the commit message contains forbidden Claude/AI attribution. Please retry with another commit message.\"}}'; fi",
+            "timeout": 10,
+            "statusMessage": "Checking commit attribution"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/bin/heavy-gate-hook",
+            "timeout": 10,
+            "statusMessage": "Checking browser memory gate"
+          }
+        ]
+      }
+    ]
+  }
+}
