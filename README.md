@@ -53,8 +53,9 @@ Contents: [Architecture](#architecture) ·
 - One write token per machine (`WRITE_TOKENS="label:token,..."`): the host label
   on the dashboard comes from the token, so machines cannot impersonate each
   other. One read token (`READ_TOKEN`) for the dashboard.
-- The same SQLite schema runs on all three platforms. Events are kept 7 days;
-  ended sessions disappear after 24 h. Cleanup runs inside ingest (no cron).
+- The same SQLite schema runs on all three platforms. Event deduplication metadata
+  older than 7 days and sessions ended more than 24 h ago are removed during
+  cleanup, every 500 changed ingest revisions (no cron; not a strict expiry timer).
 
 | Package | What |
 |---|---|
@@ -240,20 +241,46 @@ config and the state directory).
 
 ### Privacy: `JFM_REDACT`
 
-Only summaries are stored: tool name + a command/path summary (≤ 120 chars),
-the first line of each prompt (≤ 120), the wait reason and the last reply
-(≤ 300). To send even less, add to `~/.config/job-farm-mon/config` (or the
-environment):
+Reporters send session/host/model/terminal metadata and bounded display text:
+the first nonblank prompt line (≤ 120 chars), selected tool-summary inputs,
+and reply/error/wait text (≤ 300). Tool inputs are allowlisted: file tools send
+paths, not file contents or edit replacements; patches send file headers, not
+diff bodies. Custom instructions, transcript paths and tool responses are not
+uploaded. Full working-directory and file paths can still be sent by default.
+
+The server stores session/progress summaries and metadata; the event table
+contains only deduplication metadata, never payloads. Summaries can themselves
+contain secrets: truncation is not secret detection. To suppress content, add
+to `~/.config/job-farm-mon/config` (or the environment):
 
 ```sh
 JFM_REDACT=1
 ```
 
-With it, `jfm-emit` blanks `tool_input`, `prompt`, `last_assistant_message` and
-`message` before anything leaves the machine, and the oh-my-pi extension blanks
-prompt, tool summary, question and reply text. The dashboard then shows tool
-names and states only. `jfm-emit` never sends `tool_response` in any mode.
-`JFM_DISABLE=1` turns reporting off on that machine.
+With it, both reporters blank prompt, tool-input/summary, question, reply and
+error text, including terminal failures and partial-reply fallbacks. Working
+directories become project basenames. Session/host/model/terminal identifiers,
+tool names, state and project names remain visible; this is not anonymization.
+The shell reporter reapplies minimization and current redaction when flushing,
+so an older queued payload cannot bypass the upload policy.
+
+`JFM_DISABLE=1` stops new collection and makes `jfm-emit --flush` leave the queue
+untouched without sending. Re-enabling can send that queue. Configuration is
+read once per shell invocation / OMP extension initialization: restart OMP to
+change its policy; already-running flushes and in-flight requests are not
+cancelled. `--check` remains an explicit connectivity diagnostic.
+
+**Upgrade:** redeploy the server, rerun `bash local/install.sh` on reporting
+machines (existing configuration is kept), and restart agent sessions. Schema
+v3 removes the legacy `events.raw_json` column while preserving event IDs and
+dashboard state. This is logical deletion, not forensic erasure: existing
+backups, local queued/rejected files and prior raw recordings are not scrubbed.
+Queued files are sanitized for upload, not rewritten in place.
+
+`JFM_RECORD_DIR` / `--record` explicitly saves raw local stdin even with
+redaction enabled. Local blocked-call markers also contain a short tool-input
+fingerprint; neither is uploaded. Keep the state directory private and use a
+trusted HTTPS endpoint for remote reporting.
 
 ## Troubleshooting
 

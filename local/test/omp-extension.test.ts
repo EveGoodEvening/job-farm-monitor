@@ -221,8 +221,6 @@ describe('main session', () => {
       hasUI: true,
       model: 'claude-test',
     });
-    expect(p[1]?.text).toHaveLength(200);
-    expect(String(p[1]?.text).startsWith('fix the bug\n')).toBe(true);
     expect(p[2]).toEqual({ type: 'tool_start', sessionId: 'S1', tool: 'bash', summary: 'npm test --watch' });
     expect(p[3]).toMatchObject({ tool: 'read', summary: 'src/a.ts' });
     expect(p[4]).toEqual({ type: 'blocked', sessionId: 'S1', kind: 'question', msg: 'Which DB?' });
@@ -347,24 +345,44 @@ describe('main session', () => {
     expect(payloads().map((p) => p.type)).toEqual(['session_start', 'tool_start', 'session_end']);
   });
 
-  test('JFM_REDACT=1 blanks prompt, tool summary, question and reply text', async () => {
-    vi.stubEnv('JFM_REDACT', '1');
+  test('sends only a bounded first nonblank prompt line', async () => {
     const pi = await setup();
     const ctx = mainCtx('S1');
+    await pi.fire('before_agent_start', {
+      reason: 'prompt',
+      prompt: `\n  Visible title ${'x'.repeat(120)} PRIVATE_TAIL\nPRIVATE_SECOND_LINE`,
+    }, ctx);
+    await pi.fire('session_shutdown', {}, ctx);
+    const prompt = payloads().find((p) => p.type === 'prompt');
+    expect(prompt).toMatchObject({ sessionId: 'S1' });
+    expect(String(prompt?.text).startsWith('Visible title ')).toBe(true);
+    expect(String(prompt?.text).length).toBeLessThanOrEqual(120);
+    expect(calls.map((c) => String(c.init.body)).join('\n')).not.toMatch(/PRIVATE_TAIL|PRIVATE_SECOND_LINE/);
+  });
+
+  test('JFM_REDACT=1 removes content from replies, terminal errors and retries', async () => {
+    vi.stubEnv('JFM_REDACT', '1');
+    const pi = await setup();
+    const ctx = mainCtx('S1', { cwd: '/private-account/work/proj/' });
     await pi.fire('session_start', {}, ctx);
     await pi.fire('before_agent_start', { reason: 'prompt', prompt: 'secret prompt' }, ctx);
     await pi.fire('tool_execution_start', { toolName: 'bash', args: { command: 'cat .env' } }, ctx);
     await pi.fire('tool_execution_start', { toolName: 'ask', args: { questions: [{ question: 'secret?' }] } }, ctx);
     await pi.fire('tool_approval_requested', { toolName: 'bash', reason: 'curl secret' }, ctx);
     await pi.fire('agent_end', { messages: [{ role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'secret reply' }] }] }, ctx);
+    await pi.fire('agent_end', { messages: [{ role: 'assistant', stopReason: 'error', errorMessage: 'secret terminal error', content: [] }] }, ctx);
+    await pi.fire('agent_end', { messages: [{ role: 'assistant', stopReason: 'error', content: [{ type: 'text', text: 'secret partial reply' }] }] }, ctx);
+    await pi.fire('auto_retry_start', { attempt: 1, maxAttempts: 3, errorMessage: 'secret retry error' }, ctx);
     await pi.fire('session_shutdown', {}, ctx);
     const body = calls.map((c) => String(c.init.body)).join('\n');
-    expect(body).not.toMatch(/secret|\.env/);
+    expect(body).not.toMatch(/secret|\.env|private-account/);
     const p = payloads();
     expect(p.find((x) => x.type === 'prompt')?.text).toBe('');
     expect(p.find((x) => x.type === 'tool_start')).toMatchObject({ tool: 'bash', summary: '' });
     expect(p.find((x) => x.type === 'blocked' && x.kind === 'permission')?.msg).toBe('bash');
     expect(p.find((x) => x.type === 'turn_done')?.text).toBe('');
+    expect(p.filter((x) => x.type === 'error').map((x) => x.text)).toEqual(['', '']);
+    expect(p.find((x) => x.type === 'session_start')?.cwd).toBe('proj');
   });
 });
 

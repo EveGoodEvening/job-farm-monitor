@@ -1,6 +1,6 @@
 // jfm-emit tests (T30). Every case runs under dash and bash.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import {
@@ -402,30 +402,134 @@ for (const sh of SHELLS) {
       }
     });
 
-    test('caps huge payloads: a multi-MB Write becomes a small envelope', async () => {
-      const { home, emit } = setup();
+    test('minimizes large prompts and file inputs instead of forwarding their contents', async () => {
+      const { home, env, emit } = setup();
+      const q = { JFM_NO_FLUSH: '1' };
       try {
-        const big = 'x'.repeat(3 * 1024 * 1024);
-        const r = await emit('claude', hook('PreToolUse', { tool_name: 'Write', tool_input: { file_path: '/work/proj/a.txt', content: big } }), { JFM_NO_FLUSH: '1' });
+        const secret = 'PRIVATE-CONTENT-'.repeat(200_000);
+        await emit('claude', hook('PreToolUse', { tool_name: 'Write', tool_input: { file_path: '/work/proj/a.txt', content: secret, description: secret } }), q);
+        await emit('claude', hook('UserPromptSubmit', { session_id: 's2', prompt: `\n  \n${'😀'.repeat(130)}\n${secret}`, custom_instructions: secret }), q);
+        await emit('claude', hook('PreToolUse', { session_id: 's3', tool_name: 'MultiEdit', tool_input: { file_path: '/work/proj/b.ts', edits: [{ old_string: secret, new_string: secret }], old_string: secret, new_string: secret } }), q);
+        await emit('claude', hook('PreToolUse', { session_id: 's4', tool_name: 'mcp__x__y', tool_input: { arbitrary: secret, body: secret } }), q);
+        const dir = join(stateDir(home), 'outbox');
+        const queued = outboxFiles(home).map((f) => readJson(join(dir, f)).payload);
+        const byTool = Object.fromEntries(queued.map((p) => [p.tool_name ?? p.hook_event_name, p]));
+        assert.deepEqual(byTool.Write.tool_input, { file_path: '/work/proj/a.txt' });
+        assert.deepEqual(byTool.MultiEdit.tool_input, { file_path: '/work/proj/b.ts' });
+        assert.equal(byTool.UserPromptSubmit.prompt, '😀'.repeat(120), 'codepoints, not UTF-16 units');
+        assert.deepEqual(byTool.mcp__x__y.tool_input, {});
+        assert.equal(JSON.stringify(queued).includes('PRIVATE-CONTENT'), false);
+        assert.equal(JSON.stringify(queued).includes('transcript'), false);
+        const r = await run(sh, [EMIT, '--flush'], { env: env() });
         assert.equal(r.code, 0);
-        await emit('claude', hook('UserPromptSubmit', { session_id: 's2', prompt: `line one\n${big}` }), { JFM_NO_FLUSH: '1' });
-        const many = Array.from({ length: 2000 }, (_, i) => ({ old_string: `o${i}`.repeat(50), new_string: `n${i}`.repeat(50) }));
-        await emit('claude', hook('PreToolUse', { session_id: 's3', tool_name: 'MultiEdit', tool_input: { file_path: '/work/proj/b.ts', edits: many } }), { JFM_NO_FLUSH: '1' });
-        const wide = Object.fromEntries(Array.from({ length: 5000 }, (_, i) => [`k${i}`, `v${i}`]));
-        await emit('claude', hook('PreToolUse', { session_id: 's4', tool_name: 'mcp__x__y', tool_input: wide }), { JFM_NO_FLUSH: '1' });
+        assert.deepEqual(server.accepted().map((e) => e.payload), queued, 'delivery minimization is idempotent');
+      } finally {
+        await cleanupHome(home);
+      }
+    });
+
+    test('keeps bounded useful tool summaries, model identities and control metadata only', async () => {
+      const { home, env, emit } = setup();
+      const q = { JFM_NO_FLUSH: '1' };
+      const cases = [
+        ['codex', 'shell', { command: ['bash', '-lc', 'npm test\nPRIVATE-CONTENT'], description: 'Allow tests?', body: 'PRIVATE-CONTENT' }, { command: 'npm test', description: 'Allow tests?' }],
+        ['claude', 'Edit', { file_path: '/work/proj/a.ts', old_string: 'PRIVATE-CONTENT', new_string: 'PRIVATE-CONTENT' }, { file_path: '/work/proj/a.ts' }],
+        ['claude', 'Grep', { pattern: 'find me\nPRIVATE-CONTENT', path: '/private', output: 'PRIVATE-CONTENT' }, { pattern: 'find me' }],
+        ['codex', 'web_search', { query: 'search me', instructions: 'PRIVATE-CONTENT' }, { query: 'search me' }],
+        ['codex', 'request_user_input', { questions: [{ title: 'Choose?\nPRIVATE-CONTENT', options: [{ label: 'PRIVATE-CONTENT' }] }, { question: 'PRIVATE-CONTENT' }] }, { question: 'Choose?' }],
+        ['codex', 'apply_patch', { input: '*** Begin Patch\n*** Update File: a.ts\n@@\n-PRIVATE-CONTENT\n+PRIVATE-CONTENT\n*** Add File: b.ts\n+PRIVATE-CONTENT\n*** End Patch' }, { input: '*** Update File: a.ts\n*** Add File: b.ts' }],
+        ['codex', 'update_plan', { explanation: 'PRIVATE-CONTENT', plan: [{ step: 'PRIVATE-CONTENT', status: 'completed' }, { step: 'Implement fix\nPRIVATE-CONTENT', status: 'in_progress' }, { step: 'PRIVATE-CONTENT', status: 'pending' }] }, { plan: [{ step: 'Implement fix', status: 'in_progress' }] }],
+        ['claude', 'unknown', { arbitrary: 'PRIVATE-CONTENT', content: 'PRIVATE-CONTENT', argsPreview: 'bounded preview\nPRIVATE-CONTENT' }, { argsPreview: 'bounded preview' }],
+      ];
+      try {
+        for (const [i, [agent, tool_name, tool_input]] of cases.entries()) {
+          await emit(agent, hook('PreToolUse', { session_id: `tool-${i}`, tool_name, tool_input, permission_suggestions: ['PRIVATE-CONTENT'], tool_response: 'PRIVATE-CONTENT', unknown: 'PRIVATE-CONTENT' }), q);
+        }
+        await emit('claude', hook('SessionStart', { session_id: 'model', model: { id: 'model-id', display_name: 'Model Name', instructions: 'PRIVATE-CONTENT' }, source: 'startup', agent_id: 'ag1', agent_type: 'Explore', stop_hook_active: false }), q);
+        await emit('claude', hook('Stop', { session_id: 'reply', last_assistant_message: 'r'.repeat(400) }), q);
+        await emit('claude', hook('StopFailure', { session_id: 'failure', error: 'e'.repeat(400) }), q);
+        await emit('omp', JSON.stringify({ type: 'blocked', sessionId: 'omp', kind: 'question', msg: 'm'.repeat(400), parentId: 'parent', agentType: 'worker' }), q);
+        await emit('omp', JSON.stringify({ type: 'prompt', sessionId: 'omp-prompt', text: '\nTitle\nPRIVATE-CONTENT' }), q);
+        await run(sh, [EMIT, '--flush'], { env: env() });
+        const payloads = server.accepted().map((e) => e.payload);
+        const bySession = Object.fromEntries(payloads.map((p) => [p.session_id ?? p.sessionId, p]));
+        for (const [i, [, , , expected]] of cases.entries()) assert.deepEqual(bySession[`tool-${i}`].tool_input, expected);
+        assert.deepEqual(bySession.model.model, { id: 'model-id', display_name: 'Model Name' });
+        assert.equal(bySession.model.source, 'startup');
+        assert.equal(bySession.model.agent_id, 'ag1');
+        assert.equal(bySession.model.agent_type, 'Explore');
+        assert.equal(bySession.model.stop_hook_active, false);
+        assert.equal(bySession.reply.last_assistant_message, 'r'.repeat(300));
+        assert.equal(bySession.failure.error, 'e'.repeat(300));
+        assert.equal(bySession.omp.msg, 'm'.repeat(300));
+        assert.equal(bySession.omp.kind, 'question');
+        assert.equal(bySession.omp.parentId, 'parent');
+        assert.equal(bySession['omp-prompt'].text, 'Title');
+        assert.equal(JSON.stringify(payloads).includes('PRIVATE-CONTENT'), false);
+      } finally {
+        await cleanupHome(home);
+      }
+    });
+
+    test('flush minimizes legacy raw envelopes and reapplies current redaction', async () => {
+      const { home, env } = setup();
+      const outbox = join(stateDir(home), 'outbox');
+      const raw = { v: 1, id: 'legacy', ts: 1000, agent: 'claude', payload: JSON.parse(hook('PermissionRequest', { tool_name: 'Write', tool_input: { file_path: '/work/proj/a.txt', content: 'PRIVATE-CONTENT' }, prompt: 'Title\nPRIVATE-CONTENT', message: 'permission details', error: 'error details', custom_instructions: 'PRIVATE-CONTENT', permission_suggestions: ['PRIVATE-CONTENT'] })) };
+      try {
+        mkdirSync(outbox, { recursive: true });
+        writeFileSync(join(outbox, '1000-legacy.json'), JSON.stringify(raw));
+        let r = await run(sh, [EMIT, '--flush'], { env: env() });
+        assert.equal(r.code, 0);
+        const first = server.accepted()[0].payload;
+        assert.deepEqual(first.tool_input, { file_path: '/work/proj/a.txt' });
+        assert.equal(first.prompt, 'Title');
+        assert.equal(first.message, 'permission details');
+        assert.equal(JSON.stringify(first).includes('PRIVATE-CONTENT'), false);
+        assert.equal('transcript_path' in first, false);
+        // Simulate an old queue surviving until the operator enables redaction.
+        server.state.requests.length = 0;
+        writeFileSync(join(outbox, '1000-legacy.json'), JSON.stringify(raw));
+        r = await run(sh, [EMIT, '--flush'], { env: env({ JFM_REDACT: '1' }) });
+        assert.equal(r.code, 0);
+        const redacted = server.accepted()[0].payload;
+        assert.deepEqual(redacted.tool_input, {});
+        assert.equal(redacted.prompt, '');
+        assert.equal(redacted.message, '');
+        assert.equal(redacted.error, '');
+        assert.equal(redacted.cwd, 'proj');
+        assert.equal(redacted.tool_name, 'Write');
+        assert.equal(redacted.hook_event_name, 'PermissionRequest');
+        assert.equal(redacted.session_id, 'sess-1');
+        for (const value of ['PRIVATE-CONTENT', '/work/', 'permission details', 'error details', 'transcript']) assert.equal(JSON.stringify(redacted).includes(value), false);
+      } finally {
+        await cleanupHome(home);
+      }
+    });
+
+    test('disabled explicit flush leaves the queue and cleanup state untouched, then resumes', async () => {
+      const { home, env, emit } = setup();
+      try {
+        await emit('claude', hook('UserPromptSubmit', { prompt: 'Queued title' }), { JFM_NO_FLUSH: '1' });
         const dir = join(stateDir(home), 'outbox');
         const files = outboxFiles(home);
-        assert.equal(files.length, 4);
-        for (const f of files) {
-          const size = statSync(join(dir, f)).size;
-          assert.ok(size < 70_000, `${f} is ${size} bytes`);
-        }
-        const byTool = Object.fromEntries(files.map((f) => readJson(join(dir, f)).payload).map((p) => [p.tool_name ?? p.hook_event_name, p]));
-        assert.equal(byTool.Write.tool_input.file_path, '/work/proj/a.txt', 'short fields kept');
-        assert.ok(byTool.Write.tool_input.content.startsWith('xxx'));
-        assert.ok(byTool.UserPromptSubmit.prompt.startsWith('line one\n'), 'prompt start kept');
-        assert.equal(byTool.MultiEdit.tool_input.file_path, '/work/proj/b.ts');
-        assert.equal(byTool.mcp__x__y.session_id, 's4', 'metadata kept after the hardest cut');
+        const before = files.map((f) => readFileSync(join(dir, f), 'utf8'));
+        const marker = join(stateDir(home), 'markers', 'old-marker');
+        writeFileSync(marker, 'keep me');
+        const old = new Date(Date.now() - 2 * 86400_000);
+        utimesSync(marker, old, old);
+        const r = await run(sh, [EMIT, '--flush'], { env: env({ JFM_DISABLE: '1' }) });
+        assert.equal(r.code, 0);
+        assert.equal(server.state.requests.length, 0);
+        assert.deepEqual(outboxFiles(home), files);
+        assert.deepEqual(files.map((f) => readFileSync(join(dir, f), 'utf8')), before);
+        assert.equal(readFileSync(marker, 'utf8'), 'keep me', 'disabled flush does not run cleanup');
+        assert.equal(existsSync(join(stateDir(home), 'lock.d')), false);
+        assert.equal(existsSync(join(stateDir(home), 'emit.log')), false);
+        const resumed = await run(sh, [EMIT, '--flush'], { env: env() });
+        assert.equal(resumed.code, 0);
+        assert.equal(server.accepted().length, 1);
+        assert.equal(server.accepted()[0].payload.prompt, 'Queued title');
+        assert.equal(outboxFiles(home).length, 0);
       } finally {
         await cleanupHome(home);
       }
@@ -471,16 +575,16 @@ for (const sh of SHELLS) {
       return names;
     };
 
-    test('caps each POST by bytes as well as by count', async () => {
+    test('bounds POST sizes while delivering and minimizing large legacy queued envelopes', async () => {
       const { home, env } = setup(200);
       try {
         writeEnvelopes(home, 60, { pad: 50_000 });
         const r = await run(sh, [EMIT, '--flush'], { env: env() });
         assert.equal(r.code, 0);
         const sizes = server.state.requests.map((q) => Buffer.byteLength(q.body));
-        assert.ok(sizes.length >= 3, `${sizes.length} POSTs`);
         for (const b of sizes) assert.ok(b <= 1_000_000 + 60_000, `POST of ${b} bytes`);
         assert.equal(server.accepted().length, 60);
+        assert.equal(server.accepted().some((e) => 'pad' in e.payload), false, 'legacy arbitrary fields are removed before upload');
         assert.deepEqual(server.accepted().map((e) => /** @type {any} */ (e).id), Array.from({ length: 60 }, (_, i) => `id-${i}`), 'order kept');
         assert.equal(outboxFiles(home).length, 0);
       } finally {

@@ -256,8 +256,8 @@ export class Store implements StateBackend {
           const sid = rawSessionId(env);
           const rawKey = sid ? sessionKey(host, env.agent, sid) : null;
           const ins = await exec(
-            `INSERT OR IGNORE INTO events (id, session_key, ts, received_at, type, raw_json) VALUES (?, ?, ?, ?, ?, ?)`,
-            [env.id, rawKey, env.ts, receivedAt, rawType(env), JSON.stringify(env)],
+            `INSERT OR IGNORE INTO events (id, session_key, ts, received_at, type) VALUES (?, ?, ?, ?, ?)`,
+            [env.id, rawKey, env.ts, receivedAt, rawType(env)],
           );
           if (ins.changes === 0) {
             ignored += 1;

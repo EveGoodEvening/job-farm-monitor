@@ -23,9 +23,6 @@ TOOL_THROTTLE_MS=2000   # TOOL_THROTTLE_MS
 OUTBOX_MAX=500          # OUTBOX_MAX
 BATCH_MAX=100           # INGEST_MAX_BATCH
 LOG_MAX_BYTES=1048576
-STR_MAX=2048            # chars kept per string leaf of a payload
-ARR_MAX=64              # items kept per array of a payload
-PAYLOAD_MAX=16000       # chars (JSON) above which a payload is cut harder
 BATCH_MAX_BYTES=1000000 # bytes per POST (Vercel rejects bodies > 4.5 MB)
 REJECT_AFTER=3          # a lone envelope failing this often (5xx) is set aside
 
@@ -129,47 +126,82 @@ spawn_flush() {
 
 # --- hook mode ------------------------------------------------------------------------
 
-# One jq call: line 1 = info fields joined by \037, line 2 = the envelope.
-# Info: event, session id, tool name, notification type, agent key (main | a-<agent_id>),
-# tool fingerprint (tool name + start of the tool input, used to pair a blocked marker
-# with the PostToolUse of the same call).
-#
-# Size cap: the server only needs summaries, so every string leaf is cut to
-# $str_max chars and every array to $arr_max items; if the payload is still over
-# $payload_max chars it is cut harder, and finally reduced to the metadata fields.
-# A multi-MB Write/Edit or pasted prompt can never become a multi-MB envelope.
-#
-# JFM_REDACT=1 keeps only the metadata fields (a whitelist): tool_input becomes {},
-# prompt/message/reply text becomes "", cwd is reduced to its last path component
-# (the project name), and everything else (error text, permission_suggestions,
-# custom_instructions, *transcript_path, ...) is dropped.
+# Minimize at collection and again at delivery, including legacy queued envelopes.
+# Fingerprints below still use the original input so blocked-call pairing is unchanged.
+# Raw recording remains a separate explicit opt-in path.
+# shellcheck disable=SC2016
+JQ_SANITIZE='
+def bounded($n): select(type == "string") | .[0:$n];
+def firstline: select(type == "string") | split("\n") | map(sub("\r$"; "")) | map(select(test("\\S"))) | .[0] // "";
+def preview: firstline | .[0:120];
+def fields($keys; $n): with_entries(select(.key as $k | $keys | index($k)))
+  | with_entries(select(.value | type == "string") | .value |= bounded($n));
+def command:
+  if type == "array" then map(select(type == "string"))
+    | if length >= 3 and (.[0] | split("/") | last | IN("sh", "bash", "zsh", "dash"))
+        and (.[1] == "-c" or .[1] == "-lc") then .[2:] else . end | join(" ")
+  else . end | preview;
+def question:
+  if type != "object" then ""
+  else (([.questions[]? | if type == "string" then . elif type == "object" then .question // .title // .prompt // .header else empty end]
+         + [.question, .prompt]) | map(select(type == "string" and test("\\S"))) | .[0] // "") end | preview;
+def tool_projection($tool):
+  . as $input
+  | if $tool | IN("Bash", "BashOutput", "bash", "shell", "shell_command", "exec_command", "local_shell", "container.exec") then
+      {command: (if type == "object" then .command // .cmd // .argv // .description // "" else . end | command)}
+      + (if ($input | type) == "object" then $input | fields(["description"]; 300) else {} end)
+    elif $tool | IN("Edit", "MultiEdit", "Write", "Read", "NotebookEdit", "NotebookRead", "read", "write", "edit", "view_image") then
+      if type == "object" then fields(["file_path", "notebook_path", "path"]; 2048) else {} end
+    elif $tool == "apply_patch" then
+      {input: ((if type == "string" then . elif type == "object" then .input // .patch // (.command | if type == "array" then map(select(type == "string")) | join("\n") else "" end) else "" end)
+        | if type == "string" then split("\n") | map(select(test("^\\*\\*\\* (Add|Update|Delete) File: .+"))) | .[0:64] | map(.[0:2048]) | join("\n") else "" end)}
+    elif $tool | IN("AskUserQuestion", "request_user_input", "request_user_input_async") then {question: question}
+    elif $tool == "update_plan" then
+      if type == "object" then
+        ([.plan[]? | select(type == "object" and .status == "in_progress" and (.step | type) == "string")][0] // null) as $step
+        | if $step != null then {plan: [{step: ($step.step | preview), status: "in_progress"}]}
+          else {explanation: (.explanation // "" | preview)} end
+      else {} end
+    elif type != "object" then {}
+    elif $tool | IN("Grep", "Glob") then fields(["pattern"]; 120) | with_entries(.value |= preview)
+    elif $tool | IN("WebSearch", "web_search", "web_search_preview") then fields(["query"]; 120) | with_entries(.value |= preview)
+    elif $tool == "WebFetch" then fields(["url"]; 120) | with_entries(.value |= preview)
+    elif $tool | IN("Agent", "Task") then fields(["description", "subagent_type"]; 120) | with_entries(.value |= preview)
+    elif $tool | IN("spawn_agent", "collaborationspawn_agent") then fields(["task_name", "agent_type", "description"]; 120) | with_entries(.value |= preview)
+    elif $tool == "Skill" then fields(["skill", "command"]; 120) | with_entries(.value |= preview)
+    elif $tool | IN("ExitPlanMode", "wait_agent", "collaborationwait_agent") then {}
+    else fields(["argsPreview", "description", "command", "pattern", "query", "path", "task_name"]; 120) | with_entries(.value |= preview)
+    end;
+def sanitize:
+  if type != "object" then {} else
+  . as $raw
+  | fields(["hook_event_name", "session_id", "tool_name", "notification_type", "agent_id",
+      "agent_type", "agent_role", "subagent_id", "thread_id", "source", "turn_id", "tool_use_id",
+      "trigger", "permission_mode", "type", "sessionId", "agentId", "agentType", "parentId", "kind", "tool"]; 256)
+  + ($raw | fields(["cwd"]; 2048))
+  + ($raw | with_entries(select(.key | IN("is_interrupt", "stop_hook_active"))) | with_entries(select(.value | type == "boolean")))
+  | if ($raw.model | type) == "string" then .model = ($raw.model | bounded(256))
+    elif ($raw.model | type) == "object" then .model = ($raw.model | fields(["id", "display_name"]; 256)) else . end
+  | if ($raw.reason | type) == "string" then
+      if $redact != "1" then .reason = ($raw.reason | bounded(300))
+      elif ($raw.hook_event_name == "SessionEnd" or $raw.type == "session_end") then .reason = ($raw.reason | bounded(64)) else . end
+    else . end
+  | reduce ["prompt", "last_assistant_message", "message", "text", "msg", "summary", "argsPreview", "error", "error_message"][] as $k
+      (.; if ($raw[$k] | type) == "string" then
+        .[$k] = (if $redact == "1" then ""
+          elif $k == "prompt" or ($k == "text" and $raw.type == "prompt") or ($k | IN("summary", "argsPreview")) then $raw[$k] | preview
+          elif $k == "text" and $raw.type == "progress" then $raw[$k] | bounded(160)
+          else $raw[$k] | bounded(300) end) else . end)
+  | if $raw | has("tool_input") then .tool_input = (if $redact == "1" then {} else $raw.tool_input | tool_projection($raw.tool_name // $raw.tool // "") end) else . end
+  | if $redact == "1" and has("cwd") then .cwd |= (sub("/+$"; "") | split("/") | last // "") else . end
+  end;
+'
+
+# One jq call: marker information first, then the minimized envelope.
 # shellcheck disable=SC2016
 JQ_EMIT='
 def safe: tostring | gsub("[^A-Za-z0-9._-]"; "_") | .[0:120];
 def oneline: tostring | gsub("[\u001f\n\r]"; " ");
-def clipstr($n): if length > $n then .[0:$n] + "…" else . end;
-def shrink($n; $m):
-  if type == "string" then clipstr($n)
-  elif type == "array" then (if length > $m then .[0:$m] else . end) | map(shrink($n; $m))
-  elif type == "object" then with_entries(.value |= shrink($n; $m))
-  else . end;
-def size: tojson | length;
-def meta_keys: {
-  hook_event_name: 1, session_id: 1, tool_name: 1, notification_type: 1, agent_id: 1,
-  agent_type: 1, agent_role: 1, subagent_id: 1, thread_id: 1, reason: 1, source: 1,
-  model: 1, turn_id: 1, tool_use_id: 1, trigger: 1, is_interrupt: 1, permission_mode: 1,
-  stop_hook_active: 1, cwd: 1,
-  type: 1, sessionId: 1, agentId: 1, agentType: 1, parentId: 1, kind: 1, tool: 1 };
-def text_keys: ["prompt", "last_assistant_message", "message", "text", "msg", "summary"];
-def only_meta:
-  . as $o
-  | with_entries(select(meta_keys[.key] != null))
-  | reduce text_keys[] as $k (.; if $o | has($k) then .[$k] = "" else . end)
-  | if $o | has("tool_input") then .tool_input = {} else . end;
-def redact:
-  only_meta
-  | if (.cwd | type) == "string" then .cwd |= (sub("/+$"; "") | split("/") | last // "") else . end
-  | if has("reason") then .reason |= (tostring | .[0:64]) else . end;
 def fingerprint:
   (.tool_name // "" | oneline) + "|"
   + ((.tool_input // null)
@@ -187,11 +219,7 @@ if type != "object" then error("payload is not an object") else . end
       (if $aid == "" then "main" else "a-" + ($aid | safe) end),
       fingerprint ]
     | join("\u001f") ),
-  ( del(.tool_response)
-    | if $redact == "1" then redact else . end
-    | shrink($str_max; $arr_max)
-    | if size > $payload_max then shrink(256; 16) else . end
-    | if size > $payload_max then only_meta | shrink(256; 16) else . end
+  ( sanitize
     | { v: 1, id: $id, ts: $ts, agent: $agent, hostname: $host, pid: $pid,
         env: ({ herdr_pane_id: $hp, herdr_tab_id: $ht, herdr_workspace_id: $hw, tmux_pane: $tp }
               | with_entries(select(.value != ""))),
@@ -223,9 +251,7 @@ emit() {
     --argjson pid "$pid" --arg redact "${JFM_REDACT:-}" \
     --arg hp "${HERDR_PANE_ID:-}" --arg ht "${HERDR_TAB_ID:-}" \
     --arg hw "${HERDR_WORKSPACE_ID:-}" --arg tp "${TMUX_PANE:-}" \
-    --argjson str_max "$STR_MAX" --argjson arr_max "$ARR_MAX" \
-    --argjson payload_max "$PAYLOAD_MAX" \
-    "$JQ_EMIT" 2>/dev/null)
+    "$JQ_SANITIZE$JQ_EMIT" 2>/dev/null)
   if [ $? -ne 0 ] || [ -z "$out" ]; then
     out=
     ev=invalid sid=_none tool= ntype= akey=main fp=
@@ -489,7 +515,7 @@ EOF
       _n=$_i
     fi
     # shellcheck disable=SC2086
-    if ! jq -c -s . $_batch >"$_bf" 2>/dev/null; then
+    if ! jq -c -s --arg redact "${JFM_REDACT:-}" "$JQ_SANITIZE"'map(.payload |= sanitize)' $_batch >"$_bf" 2>/dev/null; then
       rm -f "$_bf"
       # shellcheck disable=SC2086
       drop_invalid $_batch
@@ -543,6 +569,7 @@ EOF
 }
 
 flush() {
+  [ "${JFM_DISABLE:-}" = 1 ] && return 0
   configured || return 0
   [ -d "$outbox" ] || return 0
   if [ -f "$log_file" ] && [ "$(wc -c <"$log_file")" -gt "$LOG_MAX_BYTES" ]; then

@@ -28,7 +28,7 @@
 
 import { readFileSync } from "node:fs";
 import { hostname as osHostname, homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 // Mirrors of @jfm/core constants (this file is installed standalone and cannot
 // import workspace packages). Keep in sync with packages/core/src/constants.ts.
@@ -39,7 +39,7 @@ const INGEST_MAX_BATCH = 100;
 const OUTBOX_MAX = 500;
 const TOOL_THROTTLE_MS = 2_000;
 const SUMMARY_MAX = 120;
-const PROMPT_MAX = 200;
+const TITLE_MAX = 120;
 const LAST_MESSAGE_MAX = 300;
 const STATE_MSG_MAX = 300;
 const RETRY_BACKOFF_MS = 250;
@@ -417,7 +417,7 @@ export default function jobFarmMon(pi: any): void {
   function startPayload(ctx: any, sid: string, source: string): void {
     const agent = agentOf(ctx);
     const payload: Record<string, unknown> = { type: "session_start", sessionId: sid, source, agentId: agent.id };
-    if (typeof ctx?.cwd === "string" && ctx.cwd) payload.cwd = ctx.cwd;
+    if (typeof ctx?.cwd === "string" && ctx.cwd) payload.cwd = config.redact ? basename(ctx.cwd) : ctx.cwd;
     if (typeof ctx?.hasUI === "boolean") payload.hasUI = ctx.hasUI;
     const model = ctx?.model?.id;
     if (typeof model === "string" && model) payload.model = model;
@@ -535,7 +535,7 @@ export default function jobFarmMon(pi: any): void {
     if (event?.reason === "revive") return;
     const raw = typeof event?.prompt === "string" ? event.prompt.trim() : "";
     if (!raw) return;
-    withTarget(ctx, { type: "prompt", text: config.redact ? "" : clip(raw, PROMPT_MAX) });
+    withTarget(ctx, { type: "prompt", text: config.redact ? "" : clip(raw.split(/\r?\n/, 1)[0], TITLE_MAX) });
   });
 
   pi.on("agent_start", (_event, ctx) => {
@@ -558,7 +558,7 @@ export default function jobFarmMon(pi: any): void {
     }
     const assistant = lastAssistant(event?.messages);
     if (assistant?.stopReason === "error") {
-      const text = assistant.errorMessage || assistantText(assistant) || "error";
+      const text = config.redact ? "" : assistant.errorMessage || assistantText(assistant) || "error";
       withTarget(ctx, { type: "error", text: clip(String(text), LAST_MESSAGE_MAX) });
       return;
     }

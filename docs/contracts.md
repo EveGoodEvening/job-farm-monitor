@@ -84,22 +84,24 @@ local: `bin/jfm-emit`, `claude.hooks.json`, `codex.hooks.json`,
 - `v` literal 1; `id` non-empty string (dedupe key); `ts` integer epoch ms
   (client clock); `agent` enum; `hostname`, `pid`, `env` optional. Empty-string
   env values mean absent. Unknown top-level keys are ignored.
-- `payload` for `claude` / `codex`: raw hook stdin object (`hook_event_name`,
-  `session_id`, `cwd`, `transcript_path`, `tool_name`, `tool_input`, `prompt`,
-  `last_assistant_message`, `message`, `notification_type`, `agent_id`,
-  `agent_type`, `reason`, `source`, `model`, ...), shaped by `jfm-emit`:
-  - `tool_response` is always dropped.
-  - Size cap: each string leaf <= 2048 chars, each array <= 64 items; a payload
-    still over 16000 JSON chars is cut to 256 chars / 16 items, then reduced to
-    the metadata whitelist.
-  - `JFM_REDACT=1` keeps only the metadata whitelist (`hook_event_name`,
-    `session_id`, `tool_name`, `notification_type`, `agent_id`, `agent_type`,
-    `agent_role`, `subagent_id`, `thread_id`, `reason` (<= 64 chars), `source`,
-    `model`, `turn_id`, `tool_use_id`, `trigger`, `is_interrupt`,
-    `permission_mode`, `stop_hook_active`, `cwd`, and the omp keys):
-    `tool_input` becomes `{}`, `prompt` / `last_assistant_message` / `message`
-    / `text` / `msg` / `summary` become `""`, `cwd` is reduced to its basename;
-    everything else (error text, `transcript_path`, ...) is dropped.
+- `payload` for `claude` / `codex`: a minimized projection of hook stdin,
+  shaped by `jfm-emit` before enqueue and again before every upload (including
+  legacy queued envelopes). The same projection is idempotent:
+  - Only explicit session/agent/tool/model/control metadata is kept. String
+    identifiers are bounded to 256 chars; cwd and file-tool paths to 2048.
+    Model objects keep only `id` / `display_name`.
+  - Prompts keep the first nonblank line, <= 120 chars. Reply/error/message/wait
+    text is <= 300; tool summaries/previews are <= 120; progress text <= 160.
+  - `tool_input` is projected by tool: commands, selected search/description
+    fields, file paths, first question, active plan step or explanation.
+    `apply_patch` retains at most 64 file-header lines (<= 2048 chars each),
+    never diff bodies. Write/Edit contents, arbitrary argument fields, custom
+    instructions, transcript paths, permission suggestions and `tool_response`
+    are never uploaded. Unknown tools use only recognized preview fields.
+  - `JFM_REDACT=1` blanks content fields and `tool_input`, reduces cwd to its
+    basename, and retains only metadata/control fields. A session-end reason
+    may remain (<= 64 chars); arbitrary error reasons do not. This is content
+    suppression, not anonymization of session/host/model/project identifiers.
 - `payload` for `omp`: **already canonical** (`OmpPayload`):
   `{ "type": "<canonical event name>", "sessionId": "...", ...that variant's fields }`
   plus optional `hasUI`, `agentId` (session_start: main agent's `ctx.agent.id`;
@@ -109,8 +111,10 @@ local: `bin/jfm-emit`, `claude.hooks.json`, `codex.hooks.json`,
   `agentId` except on subagent_*; `parentId` is kept on session_start only).
   The omp extension maps `session_switch` (reason/source `switch`) and
   `session_branch` (`/branch`, `/fork`, `/btw`; `branch`) to `session_end` of
-  the old id + `session_start` of the new one. With `JFM_REDACT=1` it blanks
-  prompt, last message, error, question/approval text and tool previews.
+  the old id + `session_start` of the new one. Prompts contain only the first
+  nonblank line (<= 120 chars). With `JFM_REDACT=1` it blanks prompt, last
+  message, terminal/retry error text (including partial-reply fallbacks),
+  question/approval text and tool previews, and sends only cwd's basename.
 - Known limitation (omp `parentId` fallback): `parentId` is NOT mapped onto
   the parent session (omp's main agent id is always `Main`, so it cannot
   identify one session); such events create a card under the subagent's own
@@ -174,11 +178,13 @@ local: `bin/jfm-emit`, `claude.hooks.json`, `codex.hooks.json`,
 ### Database (SQLite, identical on all platforms)
 
 - `meta(k TEXT PRIMARY KEY, v TEXT)`: `revision`, `schema_version`.
-- Schema version `SCHEMA_VERSION = 2`. `Store.init()` runs `SCHEMA_STATEMENTS`,
+- Schema version `SCHEMA_VERSION = 3`. `Store.init()` runs `SCHEMA_STATEMENTS`,
   then every `SCHEMA_MIGRATIONS` entry with `version` > the stored
   `schema_version` (none for a fresh DB), then stores `SCHEMA_VERSION`.
   Migration 2: `ADD COLUMN last_ts INTEGER NOT NULL DEFAULT 0`,
-  `ADD COLUMN state_agent TEXT`.
+  `ADD COLUMN state_agent TEXT`. Migration 3: `ALTER TABLE events DROP COLUMN
+  raw_json`, preserving event IDs, indexes and dashboard state. This removes
+  logical payload access; it does not scrub backups or guarantee forensic erasure.
 - `sessions` columns = `SessionRow` fields: `key` PK (`host/agent/session_id`),
   `host, agent, session_id, cwd, project, title, model, state, state_kind,
   state_msg, state_since, last_event_at, started_at, ended_at, last_message,
@@ -193,8 +199,10 @@ local: `bin/jfm-emit`, `claude.hooks.json`, `codex.hooks.json`,
     (`null` = main agent).
 - `progress(seq INTEGER PRIMARY KEY AUTOINCREMENT, session_key, ts, text, agent_type)`,
   newest `PROGRESS_KEEP` per session kept.
-- `events(id TEXT PRIMARY KEY, session_key, ts, received_at, type, raw_json)`;
-  `INSERT OR IGNORE` with `changes === 0` = duplicate.
+- `events(id TEXT PRIMARY KEY, session_key, ts, received_at, type)` stores only
+  deduplication/retention metadata, never raw or canonical payloads;
+  `INSERT OR IGNORE` with `changes === 0` = duplicate. Session/progress tables
+  retain their bounded display text and metadata.
 
 ## 4. HTTP API
 
@@ -285,7 +293,8 @@ tests agree. Timestamps are epoch ms numbers.
   newest progress lines.
 - `session(key)`: full view with `PROGRESS_KEEP` lines, or `null`.
 - `purge(now)`: delete events with `received_at < now - 7d`; sessions with
-  `ended_at < now - 24h` and their progress/events.
+  `ended_at < now - 24h` and their progress/events. Automatic purge is triggered
+  every 500 changed ingest revisions, not by reads or a wall-clock timer.
 
 ## 5. Platforms and environment
 
@@ -316,6 +325,18 @@ sourced; env vars win): `JFM_ENDPOINT` (base origin, e.g.
 `JFM_REDACT=1`, `JFM_RECORD_DIR`. State:
 `~/.local/state/job-farm-mon/{outbox,markers,lock.d,record,rejected}`, log
 `emit.log`.
+
+`JFM_DISABLE=1` prevents shell collection and flushing: queued events and cleanup
+state remain untouched, with no network request. Re-enabling can send the queue.
+The explicit `--check` diagnostic still contacts the endpoint. Config is read
+once per shell invocation / OMP factory initialization, not hot-reloaded;
+already-running flushes and in-flight requests are not cancelled. Restart OMP
+after a config change. Reinstall reporters and redeploy the server for upgrades.
+
+`--record` / `JFM_RECORD_DIR` explicitly retains raw local stdin even with
+redaction enabled. Existing outbox/rejected files, recordings and backups are
+not scrubbed: queued payloads are sanitized in outbound batches, not rewritten
+on disk. Marker fingerprints below also retain local input fragments.
 
 `jfm-emit` markers (`markers/`, files older than 24 h are removed on flush):
 
@@ -355,7 +376,7 @@ to `rejected/` (kept 7 days).
 | `COOKIE_NAME` / `COOKIE_MAX_AGE_S` / `COOKIE_KEY_SALT` | `jfm_s` / 2592000 / `jfm-cookie-v1` |
 | `LOGIN_FAIL_DELAY_MS` | 300 |
 | `DO_INSTANCE_NAME` / `DEFAULT_PORT` | `main` / 8787 |
-| `APP_VERSION` / `SCHEMA_VERSION` | `0.1.0` / 2 |
+| `APP_VERSION` / `SCHEMA_VERSION` | `0.1.0` / 3 |
 
 Server-only (`packages/server/src/app.ts`): `LOGIN_BODY_MAX_BYTES` = 4 KiB,
 `INGEST_BODY_MAX_BYTES` = 4 MiB.

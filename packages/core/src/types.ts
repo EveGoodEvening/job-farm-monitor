@@ -275,14 +275,13 @@ export interface ProgressRow {
   agent_type: string | null;
 }
 
-/** One row of `events` (kept EVENTS_RETENTION_MS, for debugging/replay). */
+/** Metadata-only deduplication row (kept EVENTS_RETENTION_MS). */
 export interface EventRow {
   id: string;
   session_key: string | null;
   ts: number;
   received_at: number;
   type: string;
-  raw_json: string;
 }
 
 // ---------------------------------------------------------------------------

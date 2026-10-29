@@ -50,8 +50,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     session_key TEXT,
     ts INTEGER NOT NULL,
     received_at INTEGER NOT NULL,
-    type TEXT NOT NULL,
-    raw_json TEXT NOT NULL
+    type TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS events_received ON events (received_at)`,
   `CREATE INDEX IF NOT EXISTS events_session ON events (session_key)`,
@@ -69,6 +68,12 @@ export const SCHEMA_MIGRATIONS: readonly { version: number; statements: readonly
     statements: [
       `ALTER TABLE sessions ADD COLUMN last_ts INTEGER NOT NULL DEFAULT 0`,
       `ALTER TABLE sessions ADD COLUMN state_agent TEXT`,
+    ],
+  },
+  {
+    version: 3,
+    statements: [
+      `ALTER TABLE events DROP COLUMN raw_json`,
     ],
   },
 ];

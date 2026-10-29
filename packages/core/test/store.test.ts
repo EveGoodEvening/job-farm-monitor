@@ -108,14 +108,23 @@ describe.each(DRIVER_CASES.filter((d) => d.name !== 'node-sqlite (:memory:)'))('
     expect(await count('sessions')).toBe(0);
   });
 
-  it('stores raw events with session key, type and received_at', async () => {
+  it('retains only deduplication metadata, not sensitive payload input', async () => {
     clock = T0 + 500;
-    const e = claude('s1', cl('Stop'));
+    const e = claude('s1', {
+      ...cl('Stop'),
+      prompt: 'private prompt contents',
+      tool_input: { file_path: '/private.txt', content: 'private Write contents' },
+      custom_instructions: 'private custom instructions',
+    });
     await store.ingest([e], 'kvm');
     const { rows } = await driver.exec(`SELECT * FROM events`);
     expect(rows).toEqual([
-      { id: e.id, session_key: 'kvm/claude/s1', ts: T0, received_at: T0 + 500, type: 'Stop', raw_json: JSON.stringify(e) },
+      { id: e.id, session_key: 'kvm/claude/s1', ts: T0, received_at: T0 + 500, type: 'Stop' },
     ]);
+    const columns = (await driver.exec(`PRAGMA table_info(events)`)).rows.map((row) => row.name);
+    expect(columns).toEqual(['id', 'session_key', 'ts', 'received_at', 'type']);
+    expect(JSON.stringify(rows)).not.toContain('private');
+    expect(await store.ingest([e], 'kvm')).toEqual({ accepted: 0, ignored: 1, revision: 1 });
   });
 
   it('since === revision -> null (304); otherwise a snapshot', async () => {
@@ -216,26 +225,72 @@ describe.each(DRIVER_CASES.filter((d) => d.name !== 'node-sqlite (:memory:)'))('
     expect(await store.session('kvm/claude/s1')).toMatchObject({ state: 'working', stateKind: null, stateMsg: null });
   });
 
-  it('migrates a schema v1 database (adds last_ts / state_agent)', async () => {
-    const v1 = SCHEMA_STATEMENTS.map((sql) =>
-      sql.replace(/,\s*last_ts INTEGER NOT NULL DEFAULT 0,\s*state_agent TEXT/, ''),
-    );
-    expect(v1).not.toEqual(SCHEMA_STATEMENTS);
+  it.each([1, 2])('migrates schema v%i to metadata-only events without losing state or deduplication', async (version) => {
+    const legacy = SCHEMA_STATEMENTS.map((sql) => {
+      if (sql.startsWith('CREATE TABLE IF NOT EXISTS events (')) {
+        return `CREATE TABLE IF NOT EXISTS events (
+          id TEXT PRIMARY KEY,
+          session_key TEXT,
+          ts INTEGER NOT NULL,
+          received_at INTEGER NOT NULL,
+          type TEXT NOT NULL,
+          raw_json TEXT NOT NULL
+        )`;
+      }
+      return version === 1
+        ? sql.replace(/,\s*last_ts INTEGER NOT NULL DEFAULT 0,\s*state_agent TEXT/, '')
+        : sql;
+    });
     await driver.exec(`DROP TABLE sessions`);
-    for (const sql of v1) await driver.exec(sql);
-    await driver.exec(`UPDATE meta SET v = '1' WHERE k = 'schema_version'`);
+    await driver.exec(`DROP TABLE events`);
+    for (const sql of legacy) await driver.exec(sql);
+    await driver.exec(`UPDATE meta SET v = ? WHERE k = 'schema_version'`, [String(version)]);
+    await driver.exec(`UPDATE meta SET v = '7' WHERE k = 'revision'`);
     await driver.exec(
       `INSERT INTO sessions (key, host, agent, session_id, state, state_since, last_event_at, started_at)
        VALUES ('kvm/claude/s1', 'kvm', 'claude', 's1', 'working', ?, ?, ?)`,
       [T0, T0, T0],
     );
+    if (version === 2) {
+      await driver.exec(`UPDATE sessions SET last_ts = ?, state_agent = 'legacy-agent'`, [T0]);
+    }
+    await driver.exec(
+      `INSERT INTO progress (session_key, ts, text, agent_type) VALUES ('kvm/claude/s1', ?, 'Bash: preserved', NULL)`,
+      [T0],
+    );
+    const e = claude('s1', {
+      ...cl('PreToolUse.Bash'),
+      custom_instructions: 'legacy private instructions',
+    }, { id: `legacy-v${version}` });
+    await driver.exec(
+      `INSERT INTO events (id, session_key, ts, received_at, type, raw_json) VALUES (?, 'kvm/claude/s1', ?, ?, 'PreToolUse', ?)`,
+      [e.id, T0, T0, JSON.stringify(e)],
+    );
+    const sessionsBefore = (await driver.exec(`SELECT * FROM sessions`)).rows;
+    const progressBefore = (await driver.exec(`SELECT * FROM progress`)).rows;
+
     await store.init();
+    await store.init(); // the completed upgrade is idempotent
     const { rows } = await driver.exec(`SELECT v FROM meta WHERE k = 'schema_version'`);
     expect(rows[0]?.v).toBe(String(SCHEMA_VERSION));
+    expect((await driver.exec(`SELECT * FROM sessions`)).rows).toMatchObject(sessionsBefore);
+    expect((await driver.exec(`SELECT * FROM progress`)).rows).toEqual(progressBefore);
+    expect((await driver.exec(`SELECT * FROM events`)).rows).toEqual([
+      { id: e.id, session_key: 'kvm/claude/s1', ts: T0, received_at: T0, type: 'PreToolUse' },
+    ]);
+    expect((await driver.exec(`PRAGMA table_info(events)`)).rows.map((row) => row.name))
+      .toEqual(['id', 'session_key', 'ts', 'received_at', 'type']);
+    const preserved = await store.session('kvm/claude/s1');
+    expect(preserved).toMatchObject({
+      state: 'working',
+      progress: [{ ts: T0, text: 'Bash: preserved', agentType: null }],
+    });
+    expect(await store.ingest([e], 'kvm')).toEqual({ accepted: 0, ignored: 1, revision: 7 });
+    expect(await store.session('kvm/claude/s1')).toEqual(preserved);
     clock = T0 + 10_000;
-    await store.ingest([claude('s1', cl('PermissionRequest'), { ts: T0 + 5000 })], 'kvm');
+    expect(await store.ingest([claude('s1', cl('PermissionRequest'), { ts: T0 + 5000 })], 'kvm'))
+      .toEqual({ accepted: 1, ignored: 0, revision: 8 });
     expect(await store.session('kvm/claude/s1')).toMatchObject({ state: 'blocked', stateKind: 'permission' });
-    await store.init(); // idempotent at the new version
   });
 
   it('marks delayed deliveries', async () => {

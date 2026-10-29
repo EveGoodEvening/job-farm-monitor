@@ -124,3 +124,10 @@ background:
 - Playwright is not a repo dependency. `scripts/screenshot.mjs` works with `PLAYWRIGHT_MODULE=<other project>/node_modules/playwright-core` and the cached `~/.cache/ms-playwright/chromium_headless_shell-1243`.
 - The heavy-gate hook rejects Bash commands it cannot shlex-parse and inline `node -e`, so put those commands in script files.
 - `entry.node.ts` honours `HOST` (e.g. 127.0.0.1 for local runs); leave it unset on Railway.
+
+### Privacy boundary fixes (2026-10-29)
+
+- Schema v3 removes `events.raw_json`; events are deduplication metadata only. Preserve old IDs during migration so queued retries cannot recreate sessions. Do not reintroduce payload/replay storage without an explicit privacy-contract change.
+- Reporter minimization must run both at enqueue and before upload: existing outbox files can predate the policy or `JFM_REDACT` setting. Keep raw blocked-call fingerprints local so permission pairing still works after minimization.
+- `JFM_DISABLE` must gate the flusher before locks, cleanup or network, not just hook collection. Config changes do not cancel an already-running process/request.
+- OMP terminal `stopReason: "error"` can carry either `errorMessage` or partial assistant text. Redact both paths; normal-success and retry-only coverage is insufficient.

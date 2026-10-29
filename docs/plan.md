@@ -87,7 +87,7 @@
 
 - `sessions(key PK, host, agent, session_id, cwd, project, title, model, state, state_kind, state_msg, state_since, last_event_at, started_at, ended_at, last_message, subagents_json, herdr_pane_id, herdr_tab_id, herdr_workspace_id, hostname)`。`key = host/agent/session_id`。
 - `progress(session_key, ts, text, agent_type)`，每会话保留最近 10 条。
-- `events(id PK, session_key, ts, received_at, type, raw_json)`，保留 7 天，用于排障与重放。
+- `events(id PK, session_key, ts, received_at, type)` 只保留去重元数据，不存原始 payload；schema v3 迁移删除旧 `raw_json`。7 天为清理阈值，清理由 ingest 驱动，不是定时 TTL。
 - `meta(k PK, v)`：`revision`、`schema_version`。
 - `SqlDriver` 接口：`exec(sql, params) → rows` 与 `writeTx(fn)`。实现：DO `ctx.storage.sql` + `transactionSync`；`node:sqlite` `BEGIN IMMEDIATE`；`@libsql/client` `transaction("write")`。归约在写事务内完成，三平台都无竞态。
 
@@ -195,7 +195,7 @@
 | 免费额度：CF 10 万请求/天、Vercel Hobby 调用数 | 2 秒节流、PostToolUse 过滤、页面后台暂停、304 轻量响应；README 列出预估用量 |
 | 断网或平台故障丢事件 | outbox 持久化重试；页面 stale 标记兜底 |
 | 多机时钟偏差 | 服务端记录 `received_at`，显示以客户端 `ts` 为主并对迟到事件标记 |
-| 摘要文本含敏感命令或路径 | 全部截断；配置项 `JFM_REDACT=1` 可只发工具名；token 文件 0600，Claude 已拒读 `.env*` |
+| 摘要文本含敏感命令或路径 | 上传前白名单最小化（旧 outbox 在 flush 时重新处理），不传文件正文/patch 正文/未知字段；`JFM_REDACT=1` 清空内容、cwd 仅项目 basename，但保留主机/会话/model 等元数据；截断不等于秘密检测。显式 raw recording 与本地 marker 不属于网络 redaction。 |
 | `node:sqlite` 在 Node 24 仍标“活跃开发” | 本机已验证；Dockerfile 固定 node:24；若出问题换 `@libsql/client` 的 `file:` 驱动，接口不变 |
 | Vercel 的 Hono 预设或 Turso 免费档变化 | 步骤 5 的验证分支；libSQL 本地 `file:` 保证可测 |
 | hook 阻塞 agent | 所有 hook 只写文件后立即返回；Claude/Codex 侧额外开 `async: true` |

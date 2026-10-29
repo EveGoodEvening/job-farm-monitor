@@ -4,7 +4,7 @@
 import type { AgentKind, BlockedKind, CanonicalEventType, SessionState } from './types.js';
 
 export const APP_VERSION = '0.1.0';
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 // Vocabularies ---------------------------------------------------------------
 export const AGENT_KINDS = ['claude', 'codex', 'omp'] as const satisfies readonly AgentKind[];

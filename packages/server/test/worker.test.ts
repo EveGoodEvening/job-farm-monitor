@@ -96,4 +96,27 @@ describe('Cloudflare specifics', () => {
       expect(b).toEqual({ accepted: 0, ignored: 1, revision: a.revision });
     });
   });
+
+  it('upgrades legacy raw events without losing deduplication or dashboard state', async () => {
+    const stub = testEnv.STORE.get(testEnv.STORE.idFromName('privacy-upgrade'));
+    await runInDurableObject(stub, async (_instance: JfmStore, state) => {
+      const driver = doSqliteDriver(state.storage);
+      const store = new Store(driver);
+      await store.init();
+      const id = sid('legacy');
+      const event = claude(id, { hook_event_name: 'UserPromptSubmit', prompt: 'Visible title' });
+      const ingested = await store.ingest([event], 'h');
+      const view = await store.session(`h/claude/${id}`);
+      await driver.exec("ALTER TABLE events ADD COLUMN raw_json TEXT NOT NULL DEFAULT ''");
+      await driver.exec('UPDATE events SET raw_json = ? WHERE id = ?', ['private legacy payload', event.id]);
+      await driver.exec("UPDATE meta SET v = '2' WHERE k = 'schema_version'");
+
+      const upgraded = new Store(driver);
+      await upgraded.init();
+      expect((await driver.exec('PRAGMA table_info(events)')).rows.map((r) => r.name)).not.toContain('raw_json');
+      expect(JSON.stringify((await driver.exec('SELECT * FROM events')).rows)).not.toContain('private legacy payload');
+      expect(await upgraded.ingest([event], 'h')).toEqual({ accepted: 0, ignored: 1, revision: ingested.revision });
+      expect(await upgraded.session(`h/claude/${id}`)).toEqual(view);
+    });
+  });
 });
