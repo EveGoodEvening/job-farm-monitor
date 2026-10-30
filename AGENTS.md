@@ -127,6 +127,8 @@ background:
 - The heavy-gate hook rejects Bash commands it cannot shlex-parse and inline `node -e`, so put those commands in script files.
 - The hook also shlex-parses script files passed to bash/python (`bash -n local/install.sh` is refused because of its `'\'` case pattern); syntax-check install.sh through `local/test/install.test.mjs` instead.
 - Rename migration (job-farm-mon -> job-farm-monitor): install.sh validates config and hook JSON before moving anything, leaves relative compat symlinks `job-farm-mon -> job-farm-monitor`, and sets a losing legacy dir aside as `job-farm-mon.migrated-<time>`. The omp registry also adopts/publishes `Symbol.for("job-farm-mon.omp.registry")`.
+- UI screenshots need no server or seed data: run `JFM_MOCK=1 npx vite --host 127.0.0.1 --port <p>` in packages/web, then `JFM_URL=http://127.0.0.1:<p> JFM_READ_TOKEN=x scripts/screenshot.mjs` through the gate. The mock accepts any token.
+- In styles.css, the ≤1023px `.row-main` switches from flex to grid. Override `gap` there and not just `column-gap`, or the inherited 20px row gap pushes the tally down and breaks the sticky `--pin-h` offset.
 - `entry.node.ts` honours `HOST` (e.g. 127.0.0.1 for local runs); leave it unset on Railway.
 
 ### Privacy boundary fixes (2026-10-29)

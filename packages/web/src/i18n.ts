@@ -58,6 +58,7 @@ const en = {
   'detail.hostname': 'Hostname',
   'detail.lastMessage': 'Last reply',
   'detail.progress': 'Recent activity',
+  tallyLabel: 'Session counts',
   // empty
   emptyTitle: 'No agent sessions yet',
   emptyBody: 'Install the hooks on a machine with local/install.sh; new sessions appear here within seconds.',
@@ -121,6 +122,7 @@ const zh: Record<MsgKey, string> = {
   'detail.hostname': '主机名',
   'detail.lastMessage': '最后回复',
   'detail.progress': '最近进展',
+  tallyLabel: '会话统计',
   emptyTitle: '还没有 agent 会话',
   emptyBody: '在机器上运行 local/install.sh 安装 hook，新会话几秒内就会出现在这里。',
   emptyFiltered: '这台机器上没有会话。',

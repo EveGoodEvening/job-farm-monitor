@@ -5,6 +5,7 @@ import { isStale } from '../group.ts';
 import { t } from '../i18n.ts';
 import { authed } from '../state.ts';
 import { absolute, elapsed, relative } from '../time.ts';
+import { Chevron, StatusIcon, type GlyphKind } from './Icons.tsx';
 
 const AGENT_BADGE: Record<AgentKind, { mark: string; name: string }> = {
   claude: { mark: 'C', name: 'Claude Code' },
@@ -22,13 +23,17 @@ export function SessionCard({ s, now }: Props) {
   const [open, setOpen] = useState(false);
   const stale = isStale(s, now);
   const badge = AGENT_BADGE[s.agent];
-  const dot = stale ? 'stale' : s.state;
+  // Red wins over stale: a blocked card that went quiet keeps its blocked glyph.
+  const glyph: GlyphKind = s.state === 'blocked' ? (s.stateKind === 'question' ? 'question' : 'blocked') : stale ? 'stale' : s.state;
   const bodyId = `b-${s.key}`;
 
   return (
     <article class={`card card-${s.state}${stale ? ' is-stale' : ''}${open ? ' is-open' : ''}`}>
       <button type="button" class="card-head" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(!open)}>
-        <span class={`dot dot-${dot}`} title={t(`state.${s.state}`)} aria-hidden="true" />
+        <span class="glyph" title={t(`state.${s.state}`)}>
+          <StatusIcon kind={glyph} />
+          <span class="sr-only">{t(glyph === 'stale' ? 'state.stale' : `state.${s.state}`)}</span>
+        </span>
         <span class={`agent agent-${s.agent}`} title={badge.name}>
           {badge.mark}
           <span class="sr-only">{badge.name}</span>
@@ -36,7 +41,11 @@ export function SessionCard({ s, now }: Props) {
         <span class="project">{s.project ?? s.sessionId.slice(0, 8)}</span>
         <span class="host">{s.host}</span>
         <span class={`title${s.title ? '' : ' muted'}`}>{s.title ?? t('untitled')}</span>
-        <span class="age">{relative(s.lastEventAt)}</span>
+        <span class="age">
+          {(s.state === 'error' || s.state === 'idle') && <span class={`state-tag state-tag-${s.state}`}>{t(`state.${s.state}`)}</span>}
+          {relative(s.lastEventAt)}
+        </span>
+        <Chevron />
       </button>
       <div class="card-body" id={bodyId}>
         <Flags s={s} stale={stale} />
@@ -73,8 +82,9 @@ function Body({ s }: { s: SessionView }) {
       return (
         <div class={`wait wait-${s.stateKind ?? 'permission'}`}>
           <div class="wait-head">
+            <StatusIcon kind={s.stateKind === 'question' ? 'question' : 'blocked'} size={12} />
             <strong>{t(s.stateKind === 'question' ? 'kind.question' : 'kind.permission')}</strong>
-            <span class="muted">{t('waitingFor', { d: elapsed(s.stateSince) })}</span>
+            <span class="wait-time">{t('waitingFor', { d: elapsed(s.stateSince) })}</span>
           </div>
           {s.stateMsg && <p class="wait-msg">{s.stateMsg}</p>}
         </div>

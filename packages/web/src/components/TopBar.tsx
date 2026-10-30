@@ -5,6 +5,7 @@ import { hostsOf, type Counts } from '../group.ts';
 import { setLang, t } from '../i18n.ts';
 import { authed, conn, hostFilter, lang, lastOkAt, showEnded, tick } from '../state.ts';
 import { formatDuration } from '../time.ts';
+import { Logo, SignOut, StatusIcon } from './Icons.tsx';
 
 interface Props {
   counts: Counts;
@@ -20,12 +21,12 @@ export function TopBar({ counts, list }: Props) {
 
   return (
     <header class="topbar">
-      <div class="topbar-row">
+      <div class="topbar-row row-main">
         <h1 class="brand">
-          <span class={`conn conn-${c}`} title={connTitle} aria-hidden="true" />
-          {t('appName')}
+          <Logo />
+          <span class="brand-name">{t('appName')}</span>
         </h1>
-        <ul class="tally" aria-label="counts">
+        <ul class="tally" aria-label={t('tallyLabel')}>
           <Tally cls="blocked" n={counts.blocked} label={t('state.blocked')} />
           <Tally cls="working" n={counts.working} label={t('state.working')} />
           {counts.stale > 0 && <Tally cls="stale" n={counts.stale} label={t('state.stale')} />}
@@ -55,7 +56,8 @@ export function TopBar({ counts, list }: Props) {
               });
             }}
           >
-            {t('logout')}
+            <SignOut />
+            <span class="btn-label">{t('logout')}</span>
           </button>
         </div>
       </div>
@@ -65,8 +67,13 @@ export function TopBar({ counts, list }: Props) {
             {t('allHosts')}
           </Chip>
           {hosts.map((h) => (
-            <Chip key={h.host} active={hostFilter.value === h.host} onClick={() => (hostFilter.value = h.host)}>
-              {h.blocked > 0 && <span class="dot dot-blocked" aria-hidden="true" />}
+            <Chip
+              key={h.host}
+              active={hostFilter.value === h.host}
+              extra={h.blocked > 0 ? 'has-blocked' : undefined}
+              onClick={() => (hostFilter.value = h.host)}
+            >
+              {h.blocked > 0 && <StatusIcon kind="blocked" size={12} />}
               {h.host}
               <span class="chip-n">{h.total}</span>
             </Chip>
@@ -75,32 +82,46 @@ export function TopBar({ counts, list }: Props) {
         <label class="toggle">
           <input
             type="checkbox"
+            role="switch"
             checked={showEnded.value}
             onChange={(e) => {
               showEnded.value = (e.currentTarget as HTMLInputElement).checked;
               refreshFull();
             }}
           />
-          {t('showEnded24h')}
+          <span class="switch" aria-hidden="true" />
+          <span class="toggle-label">{t('showEnded24h')}</span>
         </label>
       </div>
     </header>
   );
 }
 
-function Tally({ cls, n, label }: { cls: string; n: number; label: string }) {
-  return (
-    <li class={`tally-item${n === 0 ? ' zero' : ''}`}>
-      <span class={`dot dot-${cls}`} aria-hidden="true" />
+/** The blocked count links to the waiting section while there is something to jump to. */
+function Tally({ cls, n, label }: { cls: 'blocked' | 'working' | 'stale' | 'error' | 'done'; n: number; label: string }) {
+  const inner = (
+    <>
+      <StatusIcon kind={cls} />
       <span class="tally-n">{n}</span>
       <span class="tally-label">{label}</span>
+    </>
+  );
+  return (
+    <li class={`tally-item tally-${cls}${n === 0 ? ' zero' : ''}`}>
+      {cls === 'blocked' && n > 0 ? (
+        <a class="tally-in" href="#h-blocked">
+          {inner}
+        </a>
+      ) : (
+        <span class="tally-in">{inner}</span>
+      )}
     </li>
   );
 }
 
-function Chip(props: { active: boolean; onClick: () => void; children: ComponentChildren }) {
+function Chip(props: { active: boolean; extra?: string; onClick: () => void; children: ComponentChildren }) {
   return (
-    <button type="button" class={`chip${props.active ? ' on' : ''}`} aria-pressed={props.active} onClick={props.onClick}>
+    <button type="button" class={`chip${props.active ? ' on' : ''}${props.extra ? ` ${props.extra}` : ''}`} aria-pressed={props.active} onClick={props.onClick}>
       {props.children}
     </button>
   );

@@ -1,4 +1,5 @@
 import { useEffect } from 'preact/hooks';
+import { StatusIcon } from './components/Icons.tsx';
 import { Login } from './components/Login.tsx';
 import { Section } from './components/Section.tsx';
 import { TopBar } from './components/TopBar.tsx';
@@ -48,6 +49,9 @@ function Dashboard() {
       <main class="board">
         {empty ? (
           <div class="empty">
+            <div class="empty-icon" aria-hidden="true">
+              <StatusIcon kind="idle" size={20} />
+            </div>
             <h2>{hostFilter.value ? t('emptyFiltered') : t('emptyTitle')}</h2>
             {!hostFilter.value && <p class="muted">{t('emptyBody')}</p>}
           </div>

@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks';
 import { login, startPolling } from '../api.ts';
 import { setLang, t } from '../i18n.ts';
 import { authed, lang } from '../state.ts';
+import { Logo, StatusIcon } from './Icons.tsx';
 
 export function Login() {
   const [token, setToken] = useState('');
@@ -29,7 +30,7 @@ export function Login() {
     <main class="login">
       <form class="login-box" onSubmit={(e) => void submit(e)}>
         <div class="login-top">
-          <span class="dot dot-working" aria-hidden="true" />
+          <Logo size={22} />
           <span class="brand-sm">{t('appName')}</span>
           <button type="button" class="ghost" onClick={() => setLang(lang.value === 'zh' ? 'en' : 'zh')}>
             {t('langSwitch')}
@@ -51,6 +52,7 @@ export function Login() {
         />
         {err && (
           <p id="login-err" class="msg-error small" role="alert">
+            <StatusIcon kind="error" size={12} />
             {t(err === 'wrong' ? 'loginWrong' : 'loginNetwork')}
           </p>
         )}
