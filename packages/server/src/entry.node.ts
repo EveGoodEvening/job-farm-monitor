@@ -7,12 +7,12 @@ import { mkdirSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve, type ServerType } from '@hono/node-server';
-import { serveStatic } from '@hono/node-server/serve-static';
 import { APP_VERSION, DEFAULT_PORT, Store } from '@jfm/core';
 import { nodeSqliteDriver } from '@jfm/core/drivers/node-sqlite';
 import { createApp, type Runtime } from './app.js';
 import { parseWriteTokens } from './auth.js';
 import { LocalBackend } from './backend.js';
+import { serveWeb } from './static.js';
 
 export interface NodeAppOptions {
   dbPath: string;
@@ -44,13 +44,7 @@ export function createNodeApp(opts: NodeAppOptions): { app: ReturnType<typeof cr
   const app = createApp(() => runtime);
 
   if (!existsSync(opts.webDist)) console.warn(`[jfm] web dist not found at ${opts.webDist}`);
-  const root = opts.webDist;
-  app.get('*', serveStatic({ root }));
-  // SPA fallback: extensionless paths (client routes) get index.html.
-  app.get('*', async (c, next) => {
-    if (/\.[A-Za-z0-9]+$/.test(c.req.path)) return next();
-    return serveStatic({ root, path: 'index.html' })(c, next);
-  });
+  serveWeb(app, opts.webDist);
   return { app, backend };
 }
 

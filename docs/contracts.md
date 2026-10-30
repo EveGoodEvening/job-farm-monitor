@@ -305,14 +305,16 @@ tests agree. Timestamps are epoch ms numbers.
 | `JFM_DB_PATH` | node | SQLite file; default `${RAILWAY_VOLUME_MOUNT_PATH:-./data}/jfm.sqlite` |
 | `PORT` | node | default 8787 locally, 8080 in Docker |
 | `HOST` | node | listen address; default all interfaces (set `127.0.0.1` for local dev) |
-| `JFM_WEB_DIST` | node | override path to `packages/web/dist` |
+| `JFM_WEB_DIST` | node, vercel | override the dashboard directory (node: `packages/web/dist`, vercel: `packages/server/public`) |
 | `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | vercel | libSQL; `file:./dev.db` locally |
 
 - Cloudflare: `wrangler.jsonc` binding `STORE` -> class `JfmStore`
   (`new_sqlite_classes`), instance `idFromName(DO_INSTANCE_NAME = "main")`,
   assets `../web/dist` with `run_worker_first: ["/api/*"]`.
 - Vercel: Root Directory `packages/server`, entry `index.js` (section 1); the
-  build copies `packages/web/dist` to `packages/server/public`.
+  build copies `packages/web/dist` to `packages/server/public`, which ships with
+  the function (`includeFiles`) and is served by it (`src/static.ts`), not by
+  the CDN.
 - Dev ports: node entry and `wrangler dev` both on 8787; Vite proxies `/api`
   to `http://127.0.0.1:8787`.
 

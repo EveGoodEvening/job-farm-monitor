@@ -265,8 +265,11 @@ blocklist are separate updates.
 ### 2c. Vercel + Turso
 
 On Vercel the API runs as one Node function backed by a Turso (libSQL)
-database; the dashboard is copied into `packages/server/public` and served as
-static files.
+database. The build copies the dashboard into `packages/server/public`, and
+the same function serves it. Vercel's CDN can't serve it: the Hono preset
+collects `public/**` before the build command runs, so it would deploy an empty
+directory and `/` would return 404. `functions.index.js.includeFiles` ships
+`public/**` with the function.
 
 1. Create the database (Turso CLI, after `turso auth login`):
 
@@ -285,6 +288,7 @@ static files.
    - `framework: "hono"`
    - `installCommand: cd ../.. && npx --yes npm@12.2.1 ci`
    - `buildCommand: cd ../.. && npx --yes npm@12.2.1 run build && mkdir -p packages/server/public && cp -r packages/web/dist/. packages/server/public/`
+   - `functions: { "index.js": { "includeFiles": "public/**" } }`
    - Select **Node.js 24.x** in Project Settings. Vercel supports only major
      versions and rolls out patch updates itself; an exact local `.nvmrc` or
      `engines` requirement is not a managed-runtime patch pin

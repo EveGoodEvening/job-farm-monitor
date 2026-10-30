@@ -89,6 +89,7 @@ background:
 - In DO SQLite, `ctx.storage.transaction()` rolls back `storage.sql.exec` writes when the closure throws. `cursor.rowsWritten` is 0 when `INSERT OR IGNORE` hits a duplicate.
 - Vercel's Hono preset picks its entry from the first of app/index/server/src/app/src/index/src/server whose text imports `hono`. It also drops the workspace symlink `@jfm/core` from traced functions. So the Vercel entry is a root `packages/server/index.js` (`import 'hono'`) that re-exports the tsup bundle `dist/entry.vercel.js` with core inlined. Never run `vercel build` in the real repo, because its installCommand `npm ci` wipes node_modules.
 - `npx vercel build` works offline without login as long as `.vercel/project.json` exists.
+- Vercel CLI 65.7 with the Hono preset puts `@vercel/static` (`public/**/*`) ahead of `@vercel/hono`, so it collects files before the build command runs. A `public/` that the build creates is never deployed, and `/` returns Hono's text 404. The function therefore serves the dashboard (`src/static.ts`), and vercel.json `functions["index.js"].includeFiles: "public/**"` ships it. Locally, those files show up in `.vc-config.json` `filePathMap` and are not copied into `index.func`. Check `.vercel/output` for a `static/` dir before trusting CDN serving.
 - Behind a TLS proxy (Railway/Vercel), Node sees http requests, so the Secure-cookie check must also honor `X-Forwarded-Proto`.
 - Railway rejects the Dockerfile `VOLUME` instruction, so mount the volume at /data via the Railway UI.
 
