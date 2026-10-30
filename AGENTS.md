@@ -129,6 +129,8 @@ background:
 - Rename migration (job-farm-mon -> job-farm-monitor): install.sh validates config and hook JSON before moving anything, leaves relative compat symlinks `job-farm-mon -> job-farm-monitor`, and sets a losing legacy dir aside as `job-farm-mon.migrated-<time>`. The omp registry also adopts/publishes `Symbol.for("job-farm-mon.omp.registry")`.
 - UI screenshots need no server or seed data: run `JFM_MOCK=1 npx vite --host 127.0.0.1 --port <p>` in packages/web, then `JFM_URL=http://127.0.0.1:<p> JFM_READ_TOKEN=x scripts/screenshot.mjs` through the gate. The mock accepts any token.
 - In styles.css, the ≤1023px `.row-main` switches from flex to grid. Override `gap` there and not just `column-gap`, or the inherited 20px row gap pushes the tally down and breaks the sticky `--pin-h` offset.
+- Session cards have fixed heights (`--sum-h` for the collapsed summary, `--detail-h` for the open detail pane, both on `.card` in styles.css). Any change to font sizes, line heights (including the `:lang(zh)` 1.6 rule), flags, the wait box or progress lines must re-check the budget comment. Clipping can be measured with the mock server plus Playwright: compare `.card-sum` scrollHeight to clientHeight.
+- In a gated script, `kill $!` on a backgrounded `npx vite` leaves vite running, and the gate then waits forever. Kill it by port or process group instead. Don't use `pkill -f <pattern>` from a Bash call either, because it matches and kills the calling shell (exit 144).
 - `entry.node.ts` honours `HOST` (e.g. 127.0.0.1 for local runs); leave it unset on Railway.
 
 ### Privacy boundary fixes (2026-10-29)

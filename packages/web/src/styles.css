@@ -919,16 +919,33 @@ details[open] > summary .chev {
   padding: 0 12px 12px 34px;
   min-width: 0;
 }
-.card-body:empty {
-  display: none;
+
+/* Every card reserves its tallest summary (one flag row + a 4-line blocked
+   message) and, when open, a fixed detail pane, so state changes never resize
+   it. Short content leaves blank space. Keep in sync with .flags/.wait/.progress:
+   flags 20 + 8 margin; wait 2 margin + 2 border + 16 padding + 18 head
+   + 4 + 4 x 20.8 message lines (zh question line-height 1.6; >= 4 progress
+   lines x 20). */
+.card {
+  --sum-h: 154px;
+  --detail-h: 320px;
+}
+.card-sum {
+  height: var(--sum-h);
+  overflow: hidden;
+}
+.detail {
+  height: var(--detail-h);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* ---- flags, wait, progress, messages, detail --------------------------- */
 
 .flags {
   display: flex;
-  flex-wrap: wrap;
   gap: 4px;
+  overflow: hidden;
   margin: 0 0 8px;
 }
 .flags:last-child {
@@ -938,6 +955,7 @@ details[open] > summary .chev {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  flex: none;
   height: 20px;
   max-width: 100%;
   padding: 0 7px;
@@ -948,6 +966,16 @@ details[open] > summary .chev {
   font-weight: 500;
   color: var(--fg-2);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flag-sub {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* The row never wraps, so only the subagent list gives up width. */
+.flag-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1116,8 +1144,6 @@ details[open] > summary .chev {
   color: var(--st-error-text);
 }
 .msg.full {
-  max-height: 40vh;
-  overflow: auto;
   padding: 8px 10px;
   border-radius: var(--r-sm);
   background: var(--bg-2);
@@ -1128,9 +1154,6 @@ details[open] > summary .chev {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--border-subtle);
-}
-.card-body > .detail:first-child {
-  margin-top: 0;
 }
 p.detail {
   font-size: 12px;
@@ -1599,6 +1622,7 @@ p.detail.msg-error {
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     line-clamp: 2;
+    height: 40px; /* always two lines, so rows do not resize */
     overflow: hidden;
     overflow-wrap: anywhere;
   }
@@ -1627,6 +1651,10 @@ p.detail.msg-error {
 }
 
 @media (max-width: 420px) {
+  /* one-column .meta alone is ~300px here */
+  .card {
+    --detail-h: 400px;
+  }
   .meta {
     grid-template-columns: minmax(0, 1fr);
     gap: 0;

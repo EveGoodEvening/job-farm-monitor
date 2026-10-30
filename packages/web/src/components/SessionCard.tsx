@@ -48,8 +48,11 @@ export function SessionCard({ s, now }: Props) {
         <Chevron />
       </button>
       <div class="card-body" id={bodyId}>
-        <Flags s={s} stale={stale} />
-        <Body s={s} />
+        {/* Fixed-height slots (styles.css) so cards keep their size as state flips. */}
+        <div class="card-sum">
+          <Flags s={s} stale={stale} />
+          <Body s={s} />
+        </div>
         {open && <Detail s={s} />}
       </div>
     </article>
@@ -67,10 +70,17 @@ function Flags({ s, stale }: { s: SessionView; stale: boolean }) {
           {t('delayed')}
         </span>
       )}
-      {subs.length > 0 && (
-        <span class="flag flag-sub">{t('subagents', { n: subs.length, types: [...new Set(subs.map((x) => x.type))].join(', ') })}</span>
-      )}
+      {subs.length > 0 && <SubFlag n={subs.length} types={[...new Set(subs.map((x) => x.type))].join(', ')} />}
     </div>
+  );
+}
+
+function SubFlag({ n, types }: { n: number; types: string }) {
+  const text = t('subagents', { n, types });
+  return (
+    <span class="flag flag-sub" title={text}>
+      <span class="flag-text">{text}</span>
+    </span>
   );
 }
 
