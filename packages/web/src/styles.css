@@ -920,19 +920,40 @@ details[open] > summary .chev {
   min-width: 0;
 }
 
-/* Every card reserves its tallest summary (one flag row + a 4-line blocked
-   message) and, when open, a fixed detail pane, so state changes never resize
-   it. Short content leaves blank space. Keep in sync with .flags/.wait/.progress:
-   flags 20 + 8 margin; wait 2 margin + 2 border + 16 padding + 18 head
-   + 4 + 4 x 20.8 message lines (zh question line-height 1.6; >= 4 progress
-   lines x 20). */
+/* Every collapsed card reserves the same summary height whatever its state, so
+   a state flip never resizes it; the open detail pane is fixed too. The slot
+   fits the tallest common case, a flag row + PROGRESS_CARD (4) progress lines
+   on phones; blocked and done text gets fewer clamped lines instead of more
+   height. Keep in sync with .flags/.wait/.progress/.msg and re-check on any
+   font, line-height, padding, flag or PROGRESS_CARD change:
+   - flags 20 + 8 margin = 28 (.wait's 2px top margin collapses into it;
+     without flags it counts, .card-sum being its own formatting context)
+   - working: 28 + 4 x 20 (18 line + 1+1 padding) = 108; phones 4 x 21 = 112
+   - .msg 5 lines, 4 after flags (20, zh 1.6 = 20.8): 5 x 20.8 = 104,
+     28 + 4 x 20.8 = 111.2
+   - wait 2 border + 16 padding + 18 head + 4 = 40, + 3 message lines, 2 after
+     flags: 2 + 40 + 3 x 20.8 = 104.4, 28 + 40 + 2 x 20.8 = 109.6 (zh question;
+     permission lines are 18 mono) */
 .card {
-  --sum-h: 154px;
+  --sum-h: 112px;
   --detail-h: 320px;
 }
 .card-sum {
   height: var(--sum-h);
   overflow: hidden;
+}
+/* Summary clamps fill the slot (budget above); a flag row costs one line. */
+.card-sum .msg {
+  -webkit-line-clamp: 5;
+  line-clamp: 5;
+}
+.card-sum .flags + .msg {
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+}
+.card-sum .flags + .wait .wait-msg {
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 .detail {
   height: var(--detail-h);
@@ -1040,8 +1061,8 @@ details[open] > summary .chev {
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   overflow: hidden;
 }
 .wait-permission .wait-msg {

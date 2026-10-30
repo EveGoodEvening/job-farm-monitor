@@ -96,7 +96,7 @@ function Body({ s }: { s: SessionView }) {
             <strong>{t(s.stateKind === 'question' ? 'kind.question' : 'kind.permission')}</strong>
             <span class="wait-time">{t('waitingFor', { d: elapsed(s.stateSince) })}</span>
           </div>
-          {s.stateMsg && <p class="wait-msg">{s.stateMsg}</p>}
+          {s.stateMsg && <p class="wait-msg" title={s.stateMsg}>{s.stateMsg}</p>}
         </div>
       );
     case 'error': {
