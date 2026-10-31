@@ -7,6 +7,7 @@ import {
   PROGRESS_KEEP,
   PURGE_EVERY_REVISIONS,
   SCHEMA_VERSION,
+  SILENT_HIDE_MS,
 } from './constants.js';
 import { sessionKey } from './key.js';
 import { normalize } from './normalize/index.js';
@@ -342,8 +343,10 @@ export class Store implements StateBackend {
       if (opts.since !== undefined && opts.since === revision) return null;
       const now = this.now();
       const { rows } = await exec(
-        `SELECT * FROM sessions WHERE state != 'ended' OR ended_at > ? ORDER BY last_event_at DESC, key ASC`,
-        [now - opts.endedWithinMs],
+        `SELECT * FROM sessions
+         WHERE (state != 'ended' AND last_event_at > ?) OR (state = 'ended' AND ended_at > ?)
+         ORDER BY last_event_at DESC, key ASC`,
+        [now - (opts.silentWithinMs ?? SILENT_HIDE_MS), now - opts.endedWithinMs],
       );
       const limit = Math.max(0, Math.floor(opts.progressLimit));
       const byKey = new Map<string, ProgressLine[]>();

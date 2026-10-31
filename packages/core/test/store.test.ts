@@ -9,6 +9,7 @@ import {
   PURGE_EVERY_REVISIONS,
   SCHEMA_STATEMENTS,
   SCHEMA_VERSION,
+  SILENT_HIDE_MS,
   STALE_MS,
   Store,
 } from '../src/index.js';
@@ -155,6 +156,26 @@ describe.each(DRIVER_CASES.filter((d) => d.name !== 'node-sqlite (:memory:)'))('
     const day = await store.state({ ...OPTS, endedWithinMs: 24 * HOUR_MS });
     expect(day?.sessions.map((s) => s.sessionId).sort()).toEqual(['live', 'old', 'recent']);
     expect(day?.sessions.find((s) => s.sessionId === 'old')?.endedAt).toBe(T0 - 2 * HOUR_MS);
+  });
+
+  it('hides non-ended sessions silent for more than SILENT_HIDE_MS; a new event shows them again', async () => {
+    await store.ingest([claude('busy', cl('UserPromptSubmit'))], 'kvm');
+    await store.ingest([claude('done', cl('Stop'))], 'kvm');
+    const ids = async (o: StateOptions = OPTS) => (await store.state(o))?.sessions.map((s) => s.sessionId).sort();
+    clock = T0 + SILENT_HIDE_MS - 1; // kept while last_event_at > now - 24h
+    expect(await ids()).toEqual(['busy', 'done']);
+    clock = T0 + SILENT_HIDE_MS;
+    // An ended session inside its window is unaffected by the silent rule.
+    await store.ingest([claude('gone', cl('SessionEnd'), { ts: clock - 10 * 60_000 })], 'kvm');
+    expect(await ids()).toEqual(['gone']);
+    // Rows are kept (no auto-end) and the option can widen the cutoff.
+    expect(await count('sessions')).toBe(3);
+    expect(await ids({ ...OPTS, silentWithinMs: Number.MAX_SAFE_INTEGER })).toEqual(['busy', 'done', 'gone']);
+    const busy = (await store.session('kvm/claude/busy'))!;
+    expect(busy.state).toBe('working');
+    // The next event makes it visible again.
+    await store.ingest([claude('busy', cl('Stop'), { ts: clock })], 'kvm');
+    expect(await ids()).toEqual(['busy', 'gone']);
   });
 
   it(`keeps the newest ${PROGRESS_KEEP} progress lines; state returns progressLimit, session returns all`, async () => {

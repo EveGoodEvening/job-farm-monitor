@@ -10,6 +10,7 @@ import {
   INGEST_MAX_BATCH,
   LOGIN_FAIL_DELAY_MS,
   PROGRESS_CARD,
+  SILENT_HIDE_MS,
   TooManyEnvelopesError,
   parseEnvelopes,
   type IngestResult,
@@ -77,18 +78,25 @@ function parseEnded(raw: string | undefined): number {
 
 /**
  * GET /api/state. `backend.state` answers `null` (304) whenever `since` equals
- * the revision, but the ended window (`ended_at > now - window`) moves with
- * the clock: on a quiet farm the client's snapshot would keep ended sessions
- * past the window forever. So before a 304, check whether an ended session
- * may have aged out of the window since the client fetched revision `since`.
+ * the revision, but two filters move with the clock: the ended window
+ * (`ended_at > now - window`) and the silent cutoff for non-ended sessions
+ * (`last_event_at > now - SILENT_HIDE_MS`). On a quiet farm the client's
+ * snapshot would keep such sessions forever. So before a 304, check whether a
+ * session may have aged out of either filter since the client fetched
+ * revision `since`.
  *
  * The client fetched at some t_fetch >= L, where L is the newest
  * lastEventAt/endedAt (those are min(event ts, received time), and every such
  * write bumped the revision to at most `since`). Its snapshot therefore holds
- * no ended session with endedAt <= L - window, and is stale iff some ended
- * session has endedAt in (L - window, now - window]. Stateless and never a
- * wrong 304; the cost is a 200 instead of a 304 after such a crossing until
- * the revision next changes.
+ * no ended session with endedAt <= L - window and no non-ended session with
+ * lastEventAt <= L - SILENT_HIDE_MS, and is stale iff some ended session has
+ * endedAt in (L - window, now - window] or some non-ended session has
+ * lastEventAt in (L - SILENT_HIDE_MS, now - SILENT_HIDE_MS]. Stateless and
+ * never a wrong 304; the cost is a 200 instead of a 304 after such a crossing
+ * until the revision next changes. Accepted trade-off: a farm whose newest row
+ * is a non-ended session silent for over SILENT_HIDE_MS (all agents dead over
+ * a weekend) gets a small 200 (that row filtered out) on every poll until the
+ * next event arrives.
  */
 async function stateFor(
   backend: StateBackend,
@@ -99,17 +107,20 @@ async function stateFor(
   const full = () => backend.state({ endedWithinMs: windowMs, progressLimit });
   const res = await backend.state({ since, endedWithinMs: windowMs, progressLimit });
   if (res !== null || since === undefined) return res;
-  // Every row the store still holds (ended sessions up to the purge), no progress.
-  const all = await backend.state({ endedWithinMs: Number.MAX_SAFE_INTEGER, progressLimit: 0 });
+  // Every row the store still holds (ended sessions up to the purge, silent
+  // ones too), no progress.
+  const all = await backend.state({
+    endedWithinMs: Number.MAX_SAFE_INTEGER,
+    silentWithinMs: Number.MAX_SAFE_INTEGER,
+    progressLimit: 0,
+  });
   if (all === null || all.revision !== since) return full();
   let newest = 0;
   for (const s of all.sessions) newest = Math.max(newest, s.lastEventAt, s.endedAt ?? 0);
-  const crossed = all.sessions.some(
-    (s) =>
-      s.state === 'ended' &&
-      s.endedAt !== null &&
-      s.endedAt > newest - windowMs &&
-      s.endedAt <= all.now - windowMs,
+  const crossed = all.sessions.some((s) =>
+    s.state === 'ended'
+      ? s.endedAt !== null && s.endedAt > newest - windowMs && s.endedAt <= all.now - windowMs
+      : s.lastEventAt > newest - SILENT_HIDE_MS && s.lastEventAt <= all.now - SILENT_HIDE_MS,
   );
   return crossed ? full() : null;
 }

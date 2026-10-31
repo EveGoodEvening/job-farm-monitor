@@ -1,5 +1,5 @@
 // Pure section grouping / ordering for the dashboard (unit-tested).
-import { ENDED_WINDOWS, STALE_MS } from '@jfm/core';
+import { ENDED_WINDOWS, INACTIVE_MS, SILENT_HIDE_MS, STALE_MS } from '@jfm/core';
 import type { SessionView } from '@jfm/core';
 
 export type SectionId = 'blocked' | 'working' | 'rest' | 'ended';
@@ -16,9 +16,12 @@ export interface Counts {
   blocked: number;
   working: number;
   stale: number;
-  /** done + idle (the "rest" section minus errors) */
+  /** active done + idle (the "rest" section minus errors and inactive cards) */
   rest: number;
+  /** active errors (inactive ones are counted in `inactive` only) */
   error: number;
+  /** idle/done/error cards with no event for more than INACTIVE_MS */
+  inactive: number;
   ended: number;
 }
 
@@ -28,20 +31,30 @@ export function endedWindowMs(showEnded24h: boolean): number {
 }
 
 /**
- * Drop ended sessions that fell out of the window since the last 200 snapshot.
- * The server only applies `ended=` on a 200; a quiet farm answers 304 forever,
- * so the client re-applies the same rule (`endedAt > now - window`, server
- * clock) on every render. Returns the input unchanged when nothing is dropped.
+ * Drop sessions that fell out of the server's visibility rules since the last
+ * 200 snapshot: ended sessions past the window (`endedAt > now - window`) and
+ * non-ended sessions silent for more than SILENT_HIDE_MS
+ * (`lastEventAt > now - SILENT_HIDE_MS`). The server only applies these on a
+ * 200, and hidden tabs can resume hours later, so the client re-applies the
+ * same rules (server clock) on every render. Returns the input unchanged when
+ * nothing is dropped.
  */
 export function withinEndedWindow(list: readonly SessionView[], now: number, windowMs: number): readonly SessionView[] {
   const cutoff = now - windowMs;
-  const keep = (s: SessionView) => s.state !== 'ended' || (s.endedAt ?? s.lastEventAt) > cutoff;
+  const silentCutoff = now - SILENT_HIDE_MS;
+  const keep = (s: SessionView) =>
+    s.state === 'ended' ? (s.endedAt ?? s.lastEventAt) > cutoff : s.lastEventAt > silentCutoff;
   return list.every(keep) ? list : list.filter(keep);
 }
 
 /** working/blocked with no event for more than STALE_MS (server-clock `now`). */
 export function isStale(s: Pick<SessionView, 'state' | 'lastEventAt'>, now: number): boolean {
   return (s.state === 'working' || s.state === 'blocked') && now - s.lastEventAt > STALE_MS;
+}
+
+/** idle/done/error with no event for more than INACTIVE_MS: the agent probably exited (server-clock `now`). */
+export function isInactive(s: Pick<SessionView, 'state' | 'lastEventAt'>, now: number): boolean {
+  return (s.state === 'idle' || s.state === 'done' || s.state === 'error') && now - s.lastEventAt > INACTIVE_MS;
 }
 
 export function sectionOf(s: Pick<SessionView, 'state'>): SectionId {
@@ -64,7 +77,8 @@ const cmpKey = (a: SessionView, b: SessionView) => (a.key < b.key ? -1 : a.key >
  * Split sessions into sections and order each one:
  * - blocked: longest wait first (stateSince asc).
  * - working: stale first, then most recent activity first.
- * - rest: errors first, then most recent activity first.
+ * - rest: active errors first, then active by recency, then inactive cards
+ *   (isInactive) by recency; an inactive error is not pinned on top.
  * - ended: most recently ended first.
  * `host` filters by host label (null = all). Input is not mutated.
  */
@@ -76,7 +90,9 @@ export function groupSessions(list: readonly SessionView[], now: number, host: s
   }
   g.blocked.sort((a, b) => a.stateSince - b.stateSince || cmpKey(a, b));
   g.working.sort((a, b) => Number(isStale(b, now)) - Number(isStale(a, now)) || byLastEventDesc(a, b));
-  g.rest.sort((a, b) => Number(b.state === 'error') - Number(a.state === 'error') || byLastEventDesc(a, b));
+  // 0 = active error, 1 = other active, 2 = inactive.
+  const restRank = (s: SessionView) => (isInactive(s, now) ? 2 : s.state === 'error' ? 0 : 1);
+  g.rest.sort((a, b) => restRank(a) - restRank(b) || byLastEventDesc(a, b));
   g.ended.sort((a, b) => (b.endedAt ?? b.lastEventAt) - (a.endedAt ?? a.lastEventAt) || cmpKey(a, b));
   return g;
 }
@@ -86,8 +102,9 @@ export function countGroups(g: Grouped, now: number): Counts {
     blocked: g.blocked.length,
     working: g.working.length,
     stale: g.working.filter((s) => isStale(s, now)).length + g.blocked.filter((s) => isStale(s, now)).length,
-    rest: g.rest.filter((s) => s.state !== 'error').length,
-    error: g.rest.filter((s) => s.state === 'error').length,
+    rest: g.rest.filter((s) => s.state !== 'error' && !isInactive(s, now)).length,
+    error: g.rest.filter((s) => s.state === 'error' && !isInactive(s, now)).length,
+    inactive: g.rest.filter((s) => isInactive(s, now)).length,
     ended: g.ended.length,
   };
 }

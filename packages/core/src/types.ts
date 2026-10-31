@@ -377,6 +377,11 @@ export interface StateOptions {
   since?: number;
   /** Ended sessions are included only if ended_at > now - endedWithinMs. */
   endedWithinMs: number;
+  /**
+   * Non-ended sessions are included only if last_event_at > now - silentWithinMs
+   * (default SILENT_HIDE_MS). Hidden rows are kept and come back on their next event.
+   */
+  silentWithinMs?: number;
   /** Newest progress lines per session to include. */
   progressLimit: number;
 }

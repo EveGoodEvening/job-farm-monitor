@@ -31,7 +31,12 @@ export function TopBar({ counts, list }: Props) {
           <Tally cls="working" n={counts.working} label={t('state.working')} />
           {counts.stale > 0 && <Tally cls="stale" n={counts.stale} label={t('state.stale')} />}
           {counts.error > 0 && <Tally cls="error" n={counts.error} label={t('state.error')} />}
-          <Tally cls="done" n={counts.rest} label={t('section.rest')} />
+          <Tally
+            cls="done"
+            n={counts.rest}
+            label={t('section.rest')}
+            title={counts.inactive > 0 ? t('tallyRestTitle', { n: counts.rest, m: counts.inactive }) : undefined}
+          />
         </ul>
         <div class="tools">
           <span class={`conn-label conn-label-${c}`} title={connTitle}>
@@ -98,7 +103,18 @@ export function TopBar({ counts, list }: Props) {
 }
 
 /** The blocked count links to the waiting section while there is something to jump to. */
-function Tally({ cls, n, label }: { cls: 'blocked' | 'working' | 'stale' | 'error' | 'done'; n: number; label: string }) {
+function Tally({
+  cls,
+  n,
+  label,
+  title,
+}: {
+  cls: 'blocked' | 'working' | 'stale' | 'error' | 'done';
+  n: number;
+  label: string;
+  /** Tooltip, e.g. how many rest cards the count leaves out as possibly exited. */
+  title?: string;
+}) {
   const inner = (
     <>
       <StatusIcon kind={cls} />
@@ -107,7 +123,7 @@ function Tally({ cls, n, label }: { cls: 'blocked' | 'working' | 'stale' | 'erro
     </>
   );
   return (
-    <li class={`tally-item tally-${cls}${n === 0 ? ' zero' : ''}`}>
+    <li class={`tally-item tally-${cls}${n === 0 ? ' zero' : ''}`} title={title}>
       {cls === 'blocked' && n > 0 ? (
         <a class="tally-in" href="#h-blocked">
           {inner}

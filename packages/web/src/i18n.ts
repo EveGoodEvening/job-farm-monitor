@@ -27,6 +27,8 @@ const en = {
   'section.endedHint.24h': 'last 24 hours',
   // badges / time
   stale: 'no update for {d}',
+  inactive: 'possibly exited · idle {d}',
+  inactiveTitle: 'No event for over {d}; the agent may have exited without reporting it',
   delayed: 'delayed',
   delayedTitle: 'Events arrived more than 60 s after they happened',
   ago: '{d} ago',
@@ -59,6 +61,7 @@ const en = {
   'detail.lastMessage': 'Last reply',
   'detail.progress': 'Recent activity',
   tallyLabel: 'Session counts',
+  tallyRestTitle: '{n} active · {m} possibly exited',
   // empty
   emptyTitle: 'No agent sessions yet',
   emptyBody: 'Install the hooks on a machine with local/install.sh; new sessions appear here within seconds.',
@@ -93,6 +96,8 @@ const zh: Record<MsgKey, string> = {
   'section.endedHint.1h': '近 1 小时',
   'section.endedHint.24h': '近 24 小时',
   stale: '无更新 {d}',
+  inactive: '可能已退出 · 无活动 {d}',
+  inactiveTitle: '超过 {d} 没有事件，agent 可能已退出但未上报',
   delayed: '延迟送达',
   delayedTitle: '事件送达时间比发生时间晚 60 秒以上',
   ago: '{d}前',
@@ -123,6 +128,7 @@ const zh: Record<MsgKey, string> = {
   'detail.lastMessage': '最后回复',
   'detail.progress': '最近进展',
   tallyLabel: '会话统计',
+  tallyRestTitle: '{n} 个活跃 · {m} 个可能已退出',
   emptyTitle: '还没有 agent 会话',
   emptyBody: '在机器上运行 local/install.sh 安装 hook，新会话几秒内就会出现在这里。',
   emptyFiltered: '这台机器上没有会话。',

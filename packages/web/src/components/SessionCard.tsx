@@ -1,10 +1,10 @@
-import type { AgentKind, ProgressLine, SessionView } from '@jfm/core';
+import { INACTIVE_MS, type AgentKind, type ProgressLine, type SessionView } from '@jfm/core';
 import { useEffect, useState } from 'preact/hooks';
 import { fetchSession } from '../api.ts';
-import { isStale } from '../group.ts';
+import { isInactive, isStale } from '../group.ts';
 import { t } from '../i18n.ts';
 import { authed } from '../state.ts';
-import { absolute, elapsed, relative } from '../time.ts';
+import { absolute, elapsed, formatDuration, relative } from '../time.ts';
 import { Chevron, StatusIcon, type GlyphKind } from './Icons.tsx';
 
 const AGENT_BADGE: Record<AgentKind, { mark: string; name: string }> = {
@@ -15,20 +15,22 @@ const AGENT_BADGE: Record<AgentKind, { mark: string; name: string }> = {
 
 interface Props {
   s: SessionView;
-  /** Server-clock now (tick-driven), used for stale. */
+  /** Server-clock now (tick-driven), used for stale and inactive. */
   now: number;
 }
 
 export function SessionCard({ s, now }: Props) {
   const [open, setOpen] = useState(false);
   const stale = isStale(s, now);
+  // At rest and silent for hours: the agent probably exited without a session_end.
+  const inactive = isInactive(s, now);
   const badge = AGENT_BADGE[s.agent];
   // Red wins over stale: a blocked card that went quiet keeps its blocked glyph.
   const glyph: GlyphKind = s.state === 'blocked' ? (s.stateKind === 'question' ? 'question' : 'blocked') : stale ? 'stale' : s.state;
   const bodyId = `b-${s.key}`;
 
   return (
-    <article class={`card card-${s.state}${stale ? ' is-stale' : ''}${open ? ' is-open' : ''}`}>
+    <article class={`card card-${s.state}${stale ? ' is-stale' : ''}${inactive ? ' is-inactive' : ''}${open ? ' is-open' : ''}`}>
       <button type="button" class="card-head" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(!open)}>
         <span class="glyph" title={t(`state.${s.state}`)}>
           <StatusIcon kind={glyph} />
@@ -50,7 +52,7 @@ export function SessionCard({ s, now }: Props) {
       <div class="card-body" id={bodyId}>
         {/* Fixed-height slots (styles.css) so cards keep their size as state flips. */}
         <div class="card-sum">
-          <Flags s={s} stale={stale} />
+          <Flags s={s} stale={stale} inactive={inactive} />
           <Body s={s} />
         </div>
         {open && <Detail s={s} />}
@@ -59,12 +61,17 @@ export function SessionCard({ s, now }: Props) {
   );
 }
 
-function Flags({ s, stale }: { s: SessionView; stale: boolean }) {
+function Flags({ s, stale, inactive }: { s: SessionView; stale: boolean; inactive: boolean }) {
   const subs = s.subagents;
-  if (!stale && !s.delayed && subs.length === 0) return null;
+  if (!stale && !inactive && !s.delayed && subs.length === 0) return null;
   return (
     <div class="flags">
       {stale && <span class="flag flag-stale">{t('stale', { d: elapsed(s.lastEventAt, 1) })}</span>}
+      {inactive && (
+        <span class="flag flag-inactive" title={t('inactiveTitle', { d: formatDuration(INACTIVE_MS, 1) })}>
+          {t('inactive', { d: elapsed(s.lastEventAt, 1) })}
+        </span>
+      )}
       {s.delayed && (
         <span class="flag flag-delayed" title={t('delayedTitle')}>
           {t('delayed')}

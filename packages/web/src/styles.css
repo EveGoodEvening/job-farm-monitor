@@ -807,6 +807,17 @@ details[open] > summary .chev {
   --card-sh: 0 0 #0000;
   background: var(--bg-2);
 }
+/* idle/done/error silent for INACTIVE_MS: probably exited, so it recedes
+   like an ended card (muted surface, no shadow). Text keeps full contrast;
+   only the decorative glyph, agent badge and rail are dimmed. */
+.card.is-inactive {
+  --card-sh: 0 0 #0000;
+  background: var(--bg-2);
+}
+.card.is-inactive .glyph,
+.card.is-inactive .agent {
+  opacity: 0.55;
+}
 
 .card-head {
   width: 100%;
@@ -926,8 +937,9 @@ details[open] > summary .chev {
    on phones; blocked and done text gets fewer clamped lines instead of more
    height. Keep in sync with .flags/.wait/.progress/.msg and re-check on any
    font, line-height, padding, flag or PROGRESS_CARD change:
-   - flags 20 + 8 margin = 28 (.wait's 2px top margin collapses into it;
-     without flags it counts, .card-sum being its own formatting context)
+   - flags 20 + 8 margin = 28, one non-wrapping row whatever it holds (stale,
+     inactive, delayed, subagents); .wait's 2px top margin collapses into it,
+     without flags it counts (.card-sum being its own formatting context)
    - working: 28 + 4 x 20 (18 line + 1+1 padding) = 108; phones 4 x 21 = 112
    - .msg 5 lines, 4 after flags (20, zh 1.6 = 20.8): 5 x 20.8 = 104,
      28 + 4 x 20.8 = 111.2
@@ -1012,6 +1024,14 @@ details[open] > summary .chev {
   height: 6px;
   border-radius: 50%;
   background: var(--st-stale);
+}
+.flag-inactive::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-3);
 }
 .flag-delayed {
   border-style: dashed;
@@ -1762,6 +1782,9 @@ p.detail.msg-error {
     border-color: var(--st-error-border);
   }
   .card.card-ended:hover {
+    background: var(--surface);
+  }
+  .card.is-inactive:hover {
     background: var(--surface);
   }
   /* the grouped phone list keeps its hairline separators on hover */

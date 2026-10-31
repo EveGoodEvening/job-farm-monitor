@@ -9,7 +9,7 @@
 - 本地上报器 `jfm-emit` 为 POSIX sh + jq + curl：先写 `~/.local/state/job-farm-monitor/outbox/`，再 `setsid`（无则 `nohup`）后台批量 POST；hook 20ms 内返回；outbox 上限 500 条。oh-my-pi 扩展进程内 `fetch`，内存重试两次。
 - 写 token 每台机器一个，`WRITE_TOKENS="label:token,label2:token2"`，host 标签由 token 决定；读 token 一个 `READ_TOKEN`，登录后下发 HttpOnly 签名 cookie 30 天，也接受 `Authorization: Bearer`。`/api/*` 全部鉴权，静态文件公开，支持 `#token=` 片段首次登录。
 - 状态词汇：`idle | working | blocked(permission|question) | done | error | ended`；`stale` 由前端按 `last_event_at` 推算。subagent 折叠进父卡（徽标 + `[AgentType]` 前缀进展行）。
-- 固定常量：进展服务端保留 10 条、卡片显示 4 条；stale 阈值 10 分钟；events 去重元数据清理阈值 7 天（非定时 TTL）；ended 默认显示 1 小时、清理阈值 24 小时；乱序宽限 5 秒；迟到 60 秒标“延迟送达”；每 500 次 revision 顺带清理一次；ingest 单批 ≤100 条；标题/摘要 ≤120 字、最后回复 ≤300 字；PreToolUse 同会话 2 秒节流；轮询 3 秒。
+- 固定常量：进展服务端保留 10 条、卡片显示 4 条；stale 阈值 10 分钟；空闲/完成/出错 6 小时无事件标“可能已退出”（INACTIVE_MS）；未结束会话 24 小时无事件不再由 `/api/state` 返回（SILENT_HIDE_MS，不改数据）；events 去重元数据清理阈值 7 天（非定时 TTL）；ended 默认显示 1 小时、清理阈值 24 小时；乱序宽限 5 秒；迟到 60 秒标“延迟送达”；每 500 次 revision 顺带清理一次；ingest 单批 ≤100 条；标题/摘要 ≤120 字、最后回复 ≤300 字；PreToolUse 同会话 2 秒节流；轮询 3 秒。
 - 前端 Preact 11 + @preact/signals + Vite 8，统一轮询 `GET /api/state?since=<rev>`，304 即跳过，页面不可见时暂停；中英双语切换存 localStorage。
 - 云端存摘要与会话元数据，events 只保留去重元数据；上报前白名单裁剪工具输入。`JFM_REDACT=1` 清空内容但保留工具名、状态、项目 basename 与会话/主机/model 等标识。
 - 版本：TypeScript 5.9.x（不用 7.x）、hono 4.13.14、@hono/node-server 2.1.5、@libsql/client 0.18.0、preact 11.1.0、@preact/signals 2.11.4、vite 8.3.5、wrangler 4.155.0、vitest 5.0.5、@cloudflare/vitest-plugin 1.4.10、zod 4.x；本地 `.nvmrc` 固定 Node 24.22.1，根 engines `>=24.22.1 <25`，npm / packageManager 固定 12.2.1；Vercel 的 server engines 用 `24.x`（平台只允许选择 major，不能锁定 patch）。历史 Implementation tasks 保留当时记录，当前部署以 README 为准。

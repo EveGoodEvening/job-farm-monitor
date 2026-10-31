@@ -1,4 +1,4 @@
-import { HOUR_MS, MINUTE_MS, STALE_MS } from '@jfm/core';
+import { HOUR_MS, INACTIVE_MS, MINUTE_MS, SILENT_HIDE_MS, STALE_MS } from '@jfm/core';
 import type { SessionView } from '@jfm/core';
 import { describe, expect, it } from 'vitest';
 import {
@@ -6,6 +6,7 @@ import {
   endedWindowMs,
   groupSessions,
   hostsOf,
+  isInactive,
   isStale,
   sectionOf,
   SECTION_ORDER,
@@ -53,6 +54,18 @@ describe('isStale', () => {
     expect(isStale({ state: 'blocked', lastEventAt: NOW - STALE_MS - 1 }, NOW)).toBe(true);
     for (const st of ['idle', 'done', 'error', 'ended'] as const) {
       expect(isStale({ state: st, lastEventAt: NOW - 10 * STALE_MS }, NOW)).toBe(false);
+    }
+  });
+});
+
+describe('isInactive', () => {
+  it('only idle/done/error, strictly more than INACTIVE_MS', () => {
+    for (const st of ['idle', 'done', 'error'] as const) {
+      expect(isInactive({ state: st, lastEventAt: NOW - INACTIVE_MS }, NOW)).toBe(false);
+      expect(isInactive({ state: st, lastEventAt: NOW - INACTIVE_MS - 1 }, NOW)).toBe(true);
+    }
+    for (const st of ['working', 'blocked', 'ended'] as const) {
+      expect(isInactive({ state: st, lastEventAt: NOW - 2 * INACTIVE_MS }, NOW)).toBe(false);
     }
   });
 });
@@ -116,7 +129,35 @@ describe('groupSessions', () => {
   it('counts sections and stale (working + blocked); errors are not counted as done', () => {
     const extra = [...list, s('b-stale', { state: 'blocked', stateSince: NOW - 20 * MINUTE_MS, lastEventAt: NOW - 20 * MINUTE_MS })];
     const c = countGroups(groupSessions(extra, NOW), NOW);
-    expect(c).toEqual({ blocked: 3, working: 4, stale: 3, rest: 2, error: 1, ended: 2 });
+    expect(c).toEqual({ blocked: 3, working: 4, stale: 3, rest: 2, error: 1, inactive: 0, ended: 2 });
+  });
+});
+
+describe('inactive cards', () => {
+  const old = NOW - INACTIVE_MS - MINUTE_MS;
+  const list = [
+    s('done-new', { state: 'done', lastEventAt: NOW - MINUTE_MS }),
+    s('idle-old', { state: 'idle', lastEventAt: NOW - HOUR_MS }),
+    s('err-active', { state: 'error', lastEventAt: NOW - 2 * HOUR_MS }),
+    s('err-dead', { state: 'error', lastEventAt: old }),
+    s('done-dead', { state: 'done', lastEventAt: old + 1 }),
+    s('idle-dead', { state: 'idle', lastEventAt: old - HOUR_MS }),
+  ];
+
+  it('sorts last in rest: active errors, active by recency, then inactive by recency', () => {
+    expect(ids(groupSessions(list, NOW).rest)).toEqual(['err-active', 'done-new', 'idle-old', 'done-dead', 'err-dead', 'idle-dead']);
+  });
+
+  it('are counted apart: rest/error tallies only count active cards', () => {
+    expect(countGroups(groupSessions(list, NOW), NOW)).toEqual({
+      blocked: 0,
+      working: 0,
+      stale: 0,
+      rest: 2,
+      error: 1,
+      inactive: 3,
+      ended: 0,
+    });
   });
 });
 
@@ -149,6 +190,18 @@ describe('withinEndedWindow', () => {
   it('returns the same array when nothing is dropped', () => {
     const fresh = list.slice(0, 2);
     expect(withinEndedWindow(fresh, NOW, HOUR_MS)).toBe(fresh);
+  });
+
+  it('drops non-ended sessions silent for more than SILENT_HIDE_MS (server rule: lastEventAt > now - 24h)', () => {
+    const silent = [
+      s('working-edge', { state: 'working', lastEventAt: NOW - SILENT_HIDE_MS }),
+      s('blocked-dead', { state: 'blocked', lastEventAt: NOW - SILENT_HIDE_MS - 1 }),
+      s('done-23h', { state: 'done', lastEventAt: NOW - 23 * HOUR_MS }),
+      s('idle-dead', { state: 'idle', lastEventAt: NOW - 30 * HOUR_MS }),
+    ];
+    expect(ids([...withinEndedWindow(silent, NOW, endedWindowMs(true))])).toEqual(['done-23h']);
+    // A hidden tab resuming later re-applies it without a new 200.
+    expect(withinEndedWindow(silent, NOW + 2 * HOUR_MS, HOUR_MS)).toEqual([]);
   });
 });
 

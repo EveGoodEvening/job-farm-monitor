@@ -75,6 +75,11 @@ function seed(): SessionView[] {
       lastEventAt: t - 12 * MIN, stateMsg: 'API error: 529 overloaded', lastMessage: 'API error: 529 overloaded',
     }),
     base({ host: 'macbook', agent: 'omp', sessionId: 'i1', state: 'idle', project: 'dotfiles', lastEventAt: t - 40 * MIN }),
+    // Silent for > INACTIVE_MS (6 h): rendered dimmed with the "possibly exited" flag.
+    base({
+      host: 'kvm16188', agent: 'codex', sessionId: 'z1', state: 'done', project: 'billing', title: 'bump invoice template',
+      lastEventAt: t - 9 * 60 * MIN, lastMessage: 'Template bumped and snapshot tests updated.',
+    }),
     base({
       host: 'kvm16188', agent: 'claude', sessionId: 'x1', state: 'ended', project: 'website', title: 'fix footer links',
       lastEventAt: t - 20 * MIN, endedAt: t - 20 * MIN, lastMessage: 'Footer links fixed.',

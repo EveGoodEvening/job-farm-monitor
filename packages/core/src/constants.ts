@@ -49,6 +49,14 @@ export const PROGRESS_CARD = 4;
 // Staleness / ordering / lateness ------------------------------------------
 /** working/blocked session with no event for this long is shown as stale (UI). */
 export const STALE_MS = 10 * MINUTE_MS;
+/** idle/done/error session with no event for this long is shown as possibly exited (UI). */
+export const INACTIVE_MS = 6 * HOUR_MS;
+/**
+ * Non-ended session with no event for this long is left out of GET /api/state
+ * (agent likely died without a session_end); it reappears on its next event.
+ * Rows are kept, never auto-ended.
+ */
+export const SILENT_HIDE_MS = 24 * HOUR_MS;
 /** Event ts older than session last_event_at by more than this: progress only, no state change. */
 export const OUT_OF_ORDER_GRACE_MS = 5 * SECOND_MS;
 /** receivedAt - ts above this marks the session "delayed". */

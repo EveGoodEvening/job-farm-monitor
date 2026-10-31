@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { APP_VERSION, HOUR_MS, MINUTE_MS, Store, type Envelope, type StateResponse } from '@jfm/core';
+import { APP_VERSION, HOUR_MS, MINUTE_MS, SILENT_HIDE_MS, Store, type Envelope, type StateResponse } from '@jfm/core';
 import { nodeSqliteDriver } from '@jfm/core/drivers/node-sqlite';
 import { INGEST_BODY_MAX_BYTES, LOGIN_BODY_MAX_BYTES, createApp, type Runtime } from '../src/app.js';
 import { parseWriteTokens } from '../src/auth.js';
@@ -179,44 +179,45 @@ describe('request body limits', () => {
   });
 });
 
-describe('GET /api/state: ended sessions age out of the window without new events', () => {
-  function setup() {
-    let clock = Date.parse('2026-01-01T00:00:00Z');
-    const driver = nodeSqliteDriver(':memory:');
-    const backend = new LocalBackend(new Store(driver, { now: () => clock }));
-    const app = createApp(() => ({
-      backend,
-      readToken: READ_TOKEN,
-      writeTokens: parseWriteTokens(WRITE_TOKENS),
-      version: APP_VERSION,
-      driverName: driver.name,
-    }));
-    const env = (sessionId: string, event: string, ts: number, n: number): Envelope => ({
-      v: 1,
-      id: `${sessionId}-${n}`,
-      ts,
-      agent: 'claude',
-      payload: { session_id: sessionId, cwd: '/p', hook_event_name: event },
-    });
-    return {
-      app,
-      env,
-      now: () => clock,
-      advance: (ms: number) => void (clock += ms),
-      ingest: async (envs: Envelope[]) => {
-        // Store clock drives received time too: ts == now keeps it in order.
-        const res = await app.request('http://localhost/api/ingest', {
-          method: 'POST',
-          headers: { authorization: `Bearer ${WRITE_TOKEN_A}` },
-          body: JSON.stringify(envs),
-        });
-        expect(res.status).toBe(200);
-      },
-      state: (q: string) =>
-        app.request(`http://localhost/api/state${q}`, { headers: { authorization: `Bearer ${READ_TOKEN}` } }),
-    };
-  }
+/** In-memory app with a controllable store clock, for window/silence crossings. */
+function setup() {
+  let clock = Date.parse('2026-01-01T00:00:00Z');
+  const driver = nodeSqliteDriver(':memory:');
+  const backend = new LocalBackend(new Store(driver, { now: () => clock }));
+  const app = createApp(() => ({
+    backend,
+    readToken: READ_TOKEN,
+    writeTokens: parseWriteTokens(WRITE_TOKENS),
+    version: APP_VERSION,
+    driverName: driver.name,
+  }));
+  const env = (sessionId: string, event: string, ts: number, n: number): Envelope => ({
+    v: 1,
+    id: `${sessionId}-${n}`,
+    ts,
+    agent: 'claude',
+    payload: { session_id: sessionId, cwd: '/p', hook_event_name: event },
+  });
+  return {
+    app,
+    env,
+    now: () => clock,
+    advance: (ms: number) => void (clock += ms),
+    ingest: async (envs: Envelope[]) => {
+      // Store clock drives received time too: ts == now keeps it in order.
+      const res = await app.request('http://localhost/api/ingest', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${WRITE_TOKEN_A}` },
+        body: JSON.stringify(envs),
+      });
+      expect(res.status).toBe(200);
+    },
+    state: (q: string) =>
+      app.request(`http://localhost/api/state${q}`, { headers: { authorization: `Bearer ${READ_TOKEN}` } }),
+  };
+}
 
+describe('GET /api/state: ended sessions age out of the window without new events', () => {
   it('returns 200 without the session once it ended more than the window ago (1h and 24h)', async () => {
     const t = setup();
     await t.ingest([t.env('live', 'SessionStart', t.now(), 1), t.env('gone', 'SessionStart', t.now(), 2)]);
@@ -236,7 +237,8 @@ describe('GET /api/state: ended sessions age out of the window without new event
       expect(aged.status).toBe(200);
       const body = (await aged.json()) as StateResponse;
       expect(body.revision).toBe(first.revision);
-      expect(body.sessions.map((s) => s.sessionId)).toEqual(['live']);
+      // On the 24h pass `live` (no event since the start) is also past SILENT_HIDE_MS.
+      expect(body.sessions.map((s) => s.sessionId)).toEqual(windowMs < SILENT_HIDE_MS ? ['live'] : []);
       // Rewind for the 24h pass: the session is in the window again.
       t.advance(-(windowMs + 1000));
     }
@@ -252,5 +254,60 @@ describe('GET /api/state: ended sessions age out of the window without new event
     expect(first.sessions.map((s) => s.sessionId)).toEqual(['live']);
     t.advance(10 * MINUTE_MS);
     expect((await t.state(`?since=${first.revision}`)).status).toBe(304);
+  });
+});
+
+describe('GET /api/state: silent non-ended sessions are hidden after SILENT_HIDE_MS', () => {
+  it('returns 200 without the session once it crosses 24h of silence, and shows it again on its next event', async () => {
+    const t = setup();
+    await t.ingest([t.env('dead', 'SessionStart', t.now(), 1)]);
+    t.advance(HOUR_MS);
+    await t.ingest([t.env('live', 'SessionStart', t.now(), 2)]);
+    const first = (await (await t.state('')).json()) as StateResponse;
+    expect(first.sessions.map((s) => s.sessionId).sort()).toEqual(['dead', 'live']);
+    const since = `?since=${first.revision}`;
+
+    t.advance(SILENT_HIDE_MS - 2 * HOUR_MS);
+    expect((await t.state(since)).status).toBe(304);
+
+    t.advance(HOUR_MS + 1000); // dead: 24h + 1s silent; live: 23h
+    const aged = await t.state(since);
+    expect(aged.status).toBe(200);
+    const body = (await aged.json()) as StateResponse;
+    expect(body.revision).toBe(first.revision);
+    expect(body.sessions.map((s) => s.sessionId)).toEqual(['live']);
+
+    await t.ingest([t.env('dead', 'UserPromptSubmit', t.now(), 3)]);
+    const back = (await (await t.state(`?since=${body.revision}`)).json()) as StateResponse;
+    expect(back.sessions.map((s) => s.sessionId).sort()).toEqual(['dead', 'live']);
+  });
+
+  it('keeps answering 304 when the silent session was already hidden in the snapshot', async () => {
+    const t = setup();
+    await t.ingest([t.env('dead', 'SessionStart', t.now(), 1)]);
+    t.advance(SILENT_HIDE_MS + HOUR_MS);
+    await t.ingest([t.env('live', 'SessionStart', t.now(), 2)]);
+    const first = (await (await t.state('')).json()) as StateResponse;
+    expect(first.sessions.map((s) => s.sessionId)).toEqual(['live']);
+    t.advance(10 * MINUTE_MS);
+    expect((await t.state(`?since=${first.revision}`)).status).toBe(304);
+  });
+
+  it('switches to 200 at exactly SILENT_HIDE_MS of silence (the store hides at that instant too)', async () => {
+    const t = setup();
+    await t.ingest([t.env('dead', 'SessionStart', t.now(), 1)]);
+    t.advance(HOUR_MS);
+    await t.ingest([t.env('live', 'SessionStart', t.now(), 2)]);
+    const first = (await (await t.state('')).json()) as StateResponse;
+    const since = `?since=${first.revision}`;
+
+    t.advance(SILENT_HIDE_MS - HOUR_MS - 1); // dead: 1 ms short of 24h
+    expect((await t.state(since)).status).toBe(304);
+
+    t.advance(1); // dead: lastEventAt == now - SILENT_HIDE_MS exactly
+    const res = await t.state(since);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as StateResponse;
+    expect(body.sessions.map((s) => s.sessionId)).toEqual(['live']);
   });
 });

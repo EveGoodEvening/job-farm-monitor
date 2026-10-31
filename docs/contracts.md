@@ -125,7 +125,10 @@ local: `bin/jfm-emit`, `claude.hooks.json`, `codex.hooks.json`,
 
 - `AgentKind = 'claude' | 'codex' | 'omp'`
 - `SessionState = 'idle' | 'working' | 'blocked' | 'done' | 'error' | 'ended'`
-  (`stale` is computed by the UI: working/blocked and `now - lastEventAt > STALE_MS`).
+  (`stale` is computed by the UI: working/blocked and `now - lastEventAt > STALE_MS`;
+  `inactive` likewise: idle/done/error and `now - lastEventAt > INACTIVE_MS`,
+  shown dimmed and last in its section as "possibly exited". Non-ended sessions
+  silent for more than `SILENT_HIDE_MS` are left out of `GET /api/state`.)
 - `BlockedKind = 'permission' | 'question'`
 - `CanonicalEvent` (discriminated on `type`; every variant has `sessionId`,
   optional `agentType` (progress prefix), optional `agentId` (subagent the
@@ -237,14 +240,22 @@ unhandled error, logged server-side). `/api/*` responses carry
   `envelope.hostname` is informational only.
 - `since`: non-negative integer (<= 15 digits); missing/invalid -> full
   snapshot. `ended`: `1h` (default) or `24h` (`ENDED_WINDOWS`); other values ->
-  `1h`. The server calls `backend.state({ since, endedWithinMs, progressLimit: PROGRESS_CARD })`.
-- **304 and ended-window aging**: `backend.state` returns `null` whenever
-  `since` equals the revision, but the ended window moves with the clock. Before
-  answering 304 the app reads all rows (`endedWithinMs: MAX_SAFE_INTEGER`,
-  `progressLimit: 0`); with `L` = newest `lastEventAt`/`endedAt`, if some ended
-  session has `endedAt` in `(L - window, now - window]` it may have aged out of
-  the client's snapshot, so it answers 200 with a full snapshot instead (also
-  if the revision moved meanwhile). Never a wrong 304; at worst a 200 until the
+  `1h`. The server calls `backend.state({ since, endedWithinMs, progressLimit: PROGRESS_CARD })`
+  (`silentWithinMs` defaults to `SILENT_HIDE_MS`).
+- **Silent sessions**: a non-ended session with no event for more than
+  `SILENT_HIDE_MS` (24 h; its agent most likely died without a `session_end`:
+  `kill -9`, interactive Codex `/exit`, a lost omp shutdown POST) is left out
+  of the snapshot. The row is not modified or ended; its next event makes it
+  visible again. The dashboard re-applies the same rule on every render.
+- **304 and window aging**: `backend.state` returns `null` whenever `since`
+  equals the revision, but the ended window and the silent cutoff move with the
+  clock. Before answering 304 the app reads all rows (`endedWithinMs` and
+  `silentWithinMs` = `MAX_SAFE_INTEGER`, `progressLimit: 0`); with `L` = newest
+  `lastEventAt`/`endedAt`, if some ended session has `endedAt` in
+  `(L - window, now - window]`, or some non-ended session has `lastEventAt` in
+  `(L - SILENT_HIDE_MS, now - SILENT_HIDE_MS]`, it may have aged out of the
+  client's snapshot, so it answers 200 with a full snapshot instead (also if
+  the revision moved meanwhile). Never a wrong 304; at worst a 200 until the
   revision next changes.
 - Ingest: the server rejects arrays longer than `INGEST_MAX_BATCH` with 413
   before parsing, runs `parseEnvelopes`, calls `backend.ingest(valid, host)` and
@@ -288,9 +299,10 @@ tests agree. Timestamps are epoch ms numbers.
   (also sent by nested/parallel `codex exec`) replaces only a session at rest
   (idle/done/error) or silent for more than `STALE_MS`.
 - `state(opts)`: `opts.since === revision` -> `null` (304, see the app's
-  ended-window check above). Otherwise all non-ended sessions plus ended
+  window check above). Otherwise non-ended sessions with
+  `last_event_at > now - silentWithinMs` (default `SILENT_HIDE_MS`) plus ended
   sessions with `ended_at > now - endedWithinMs`, each with `progressLimit`
-  newest progress lines.
+  newest progress lines. Rows are never changed by this filter.
 - `session(key)`: full view with `PROGRESS_KEEP` lines, or `null`.
 - `purge(now)`: delete events with `received_at < now - 7d`; sessions with
   `ended_at < now - 24h` and their progress/events. Automatic purge is triggered
@@ -362,6 +374,8 @@ to `rejected/` (kept 7 days).
 |---|---|
 | `PROGRESS_KEEP` / `PROGRESS_CARD` | 10 / 4 |
 | `STALE_MS` | 10 min |
+| `INACTIVE_MS` | 6 h (UI: idle/done/error shown as "possibly exited") |
+| `SILENT_HIDE_MS` | 24 h (non-ended sessions left out of `GET /api/state`) |
 | `OUT_OF_ORDER_GRACE_MS` | 5 s |
 | `DELAYED_MS` | 60 s |
 | `EVENTS_RETENTION_MS` | 7 days |
