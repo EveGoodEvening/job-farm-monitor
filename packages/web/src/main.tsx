@@ -2,6 +2,7 @@ import { render } from 'preact';
 import { bootAuth, startPolling, tokenFromHash } from './api.ts';
 import { App } from './app.tsx';
 import { initLang } from './i18n.ts';
+import { initTheme } from './theme.ts';
 import { startTicker } from './time.ts';
 import './styles.css';
 
@@ -13,6 +14,7 @@ async function boot(): Promise<void> {
   if (await bootAuth(token)) startPolling();
 }
 
+initTheme();
 initLang();
 startTicker();
 const root = document.getElementById('app');

@@ -2,6 +2,7 @@
 import { signal } from '@preact/signals';
 import type { SessionView } from '@jfm/core';
 import type { Lang } from './i18n.ts';
+import type { ThemePref } from './theme.ts';
 
 /** Sessions from the latest /api/state snapshot (server order: lastEventAt desc). */
 export const sessions = signal<SessionView[]>([]);
@@ -13,6 +14,8 @@ export const serverOffsetMs = signal(0);
 export const authed = signal<boolean | null>(null);
 /** UI language; initialised by initLang() and persisted by setLang() (i18n.ts). */
 export const lang = signal<Lang>('en');
+/** Color theme choice; initialised by initTheme() and persisted by setThemePref() (theme.ts). */
+export const themePref = signal<ThemePref>('system');
 /** Host label filter; null = all hosts. */
 export const hostFilter = signal<string | null>(null);
 /** false: ended sessions from the last hour (`ended=1h`); true: last 24 h (`ended=24h`). */

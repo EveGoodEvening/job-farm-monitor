@@ -135,6 +135,8 @@ background:
 - `entry.node.ts` honours `HOST` (e.g. 127.0.0.1 for local runs); leave it unset on Railway.
 - `GET /api/state` has two clock-moving filters: the ended window and `SILENT_HIDE_MS` (non-ended rows silent > 24h are hidden, never modified). Any new time-based filter must also join the 304 `crossed` probe in `app.ts` `stateFor` and the per-render client filter `withinEndedWindow` (group.ts). Tests that jump the store clock by ≥ 24h will see silent sessions disappear.
 
+- Theme (2026-10-31): dark tokens live on `:root[data-theme='dark']` in styles.css, not in `@media (prefers-color-scheme)`. index.html's inline pre-paint script and `src/theme.ts` set the resolved theme (choice stored in `THEME_STORAGE_KEY`, else the OS). Any new dark-only rule must use that selector. `test/theme.test.ts` checks that the script, theme-color metas and `--bg` stay in sync. A screenshot taken right after a theme switch catches the 120-180ms background transitions halfway, so wait or reload before judging colors.
+
 ### Privacy boundary fixes (2026-10-29)
 
 - Schema v3 removes `events.raw_json`; events are deduplication metadata only. Preserve old IDs during migration so queued retries cannot recreate sessions. Do not reintroduce payload/replay storage without an explicit privacy-contract change.

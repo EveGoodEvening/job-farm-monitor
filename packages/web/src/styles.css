@@ -5,7 +5,7 @@
 /* ---- tokens ------------------------------------------------------------ */
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   /* surfaces */
   --bg: #f9f9fb;
   --bg-2: #f3f3f6; /* section hover, host id chip, meta panel, ended card */
@@ -85,58 +85,60 @@
   --dur-2: 180ms;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1012;
-    --bg-2: #141518;
-    --bg-3: #222328;
-    --surface: #18191c;
-    --overlay: rgba(15, 16, 18, 0.78);
-    --border: #26272c;
-    --border-strong: #34363c;
-    --border-subtle: #1f2024;
-    --fg: #eeeff1;
-    --fg-2: #b5b7be;
-    --fg-3: #8b8e97;
-    --fg-4: #5b5e66;
-    --accent: #6e79e0;
-    --accent-hover: #828cf0;
-    --accent-wash: #1d1f33;
-    --accent-strong: #5b66cf;
-    --accent-strong-hover: #4f5bc4;
-    --on-accent: #ffffff;
-    --focus: #8b93f2;
-    --focus-ring: 0 0 0 3px rgba(139, 147, 242, 0.3);
-    --st-blocked: #ec5d5e;
-    --st-blocked-text: #ff9592;
-    --st-blocked-wash: #22151a;
-    --st-blocked-border: #5a2428;
-    --st-blocked-halo: rgba(236, 93, 94, 0.6);
-    --st-working: #ffc53d;
-    --st-working-text: #ffca16;
-    --st-working-wash: #221d10;
-    --st-working-border: #4f3f12;
-    --st-stale: #ffc53d;
-    --st-stale-text: #ffca16;
-    --st-stale-wash: #1f1b11;
-    --st-stale-border: #5a4614;
-    --st-done: #3db57a;
-    --st-done-text: #4cc38a;
-    --st-done-wash: #12201a;
-    --st-idle: #6e7079;
-    --st-idle-text: #a7a9b1;
-    --st-idle-wash: #202126;
-    --st-error: #e54fa8;
-    --st-error-text: #ff8dcc;
-    --st-error-wash: #2a1522;
-    --st-error-border: #5c2346;
-    --st-ended: #4b4d55;
-    --glyph-ink: #ffffff;
-    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.35);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px -4px rgba(0, 0, 0, 0.5);
-    --shadow-lg: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px -8px rgba(0, 0, 0, 0.6);
-    --hl-top: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  }
+/* Dark tokens. index.html's inline script sets data-theme to the resolved theme
+   (stored choice, else the system preference) before first paint; theme.ts keeps
+   it in sync. Light is the :root default. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0f1012;
+  --bg-2: #141518;
+  --bg-3: #222328;
+  --surface: #18191c;
+  --overlay: rgba(15, 16, 18, 0.78);
+  --border: #26272c;
+  --border-strong: #34363c;
+  --border-subtle: #1f2024;
+  --fg: #eeeff1;
+  --fg-2: #b5b7be;
+  --fg-3: #8b8e97;
+  --fg-4: #5b5e66;
+  --accent: #6e79e0;
+  --accent-hover: #828cf0;
+  --accent-wash: #1d1f33;
+  --accent-strong: #5b66cf;
+  --accent-strong-hover: #4f5bc4;
+  --on-accent: #ffffff;
+  --focus: #8b93f2;
+  --focus-ring: 0 0 0 3px rgba(139, 147, 242, 0.3);
+  --st-blocked: #ec5d5e;
+  --st-blocked-text: #ff9592;
+  --st-blocked-wash: #22151a;
+  --st-blocked-border: #5a2428;
+  --st-blocked-halo: rgba(236, 93, 94, 0.6);
+  --st-working: #ffc53d;
+  --st-working-text: #ffca16;
+  --st-working-wash: #221d10;
+  --st-working-border: #4f3f12;
+  --st-stale: #ffc53d;
+  --st-stale-text: #ffca16;
+  --st-stale-wash: #1f1b11;
+  --st-stale-border: #5a4614;
+  --st-done: #3db57a;
+  --st-done-text: #4cc38a;
+  --st-done-wash: #12201a;
+  --st-idle: #6e7079;
+  --st-idle-text: #a7a9b1;
+  --st-idle-wash: #202126;
+  --st-error: #e54fa8;
+  --st-error-text: #ff8dcc;
+  --st-error-wash: #2a1522;
+  --st-error-border: #5c2346;
+  --st-ended: #4b4d55;
+  --glyph-ink: #ffffff;
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px -4px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px -8px rgba(0, 0, 0, 0.6);
+  --hl-top: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 @media (max-width: 1023px) {
@@ -451,6 +453,9 @@ p {
 }
 .ghost:active {
   background: var(--border);
+}
+.ghost.icon-btn {
+  padding: 0; /* square: min-width == height */
 }
 
 /* ---- tally ------------------------------------------------------------- */
@@ -1493,7 +1498,8 @@ p.detail.msg-error {
     height: 36px;
     min-width: 36px;
   }
-  .tools .ghost:last-child {
+  .tools .ghost:last-child,
+  .ghost.icon-btn {
     width: 36px;
     padding: 0;
   }

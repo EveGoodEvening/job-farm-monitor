@@ -3,6 +3,7 @@ import { login, startPolling } from '../api.ts';
 import { setLang, t } from '../i18n.ts';
 import { authed, lang } from '../state.ts';
 import { Logo, StatusIcon } from './Icons.tsx';
+import { ThemeToggle } from './ThemeToggle.tsx';
 
 export function Login() {
   const [token, setToken] = useState('');
@@ -32,6 +33,7 @@ export function Login() {
         <div class="login-top">
           <Logo size={22} />
           <span class="brand-sm">{t('appName')}</span>
+          <ThemeToggle />
           <button type="button" class="ghost" onClick={() => setLang(lang.value === 'zh' ? 'en' : 'zh')}>
             {t('langSwitch')}
           </button>

@@ -104,3 +104,35 @@ export function SignOut() {
     </svg>
   );
 }
+
+const themeStroke = {
+  fill: 'none',
+  stroke: 'currentColor',
+  'stroke-width': 1.3,
+  'stroke-linecap': 'round',
+  'stroke-linejoin': 'round',
+} as const;
+
+/** Monitor (follow system), sun (light) or moon (dark). */
+export function ThemeIcon({ pref }: { pref: 'system' | 'light' | 'dark' }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false">
+      {pref === 'system' && (
+        <>
+          <rect x="1.75" y="2.5" width="10.5" height="7" rx="1.25" {...themeStroke} />
+          <path d="M5 11.75h4M7 9.5v2.25" {...themeStroke} />
+        </>
+      )}
+      {pref === 'light' && (
+        <>
+          <circle cx="7" cy="7" r="2.4" {...themeStroke} />
+          <path
+            d="M7 1.4v1.3M7 11.3v1.3M1.4 7h1.3M11.3 7h1.3M3.04 3.04l.92.92M10.04 10.04l.92.92M3.04 10.96l.92-.92M10.04 3.96l.92-.92"
+            {...themeStroke}
+          />
+        </>
+      )}
+      {pref === 'dark' && <path d="M11.6 8.6A4.9 4.9 0 0 1 5.4 2.4a4.9 4.9 0 1 0 6.2 6.2Z" {...themeStroke} />}
+    </svg>
+  );
+}

@@ -389,6 +389,7 @@ to `rejected/` (kept 7 days).
 | `OMP_RETRIES` / `OMP_TIMEOUT_MS` / `OMP_SHUTDOWN_WAIT_MS` | 2 / 3 s / 2 s |
 | `POLL_INTERVAL_MS` / `RELATIVE_TICK_MS` | 3 s / 10 s |
 | `LANG_STORAGE_KEY` | `jfm.lang` |
+| `THEME_STORAGE_KEY` | `jfm.theme` (`light` / `dark`; absent = system) |
 | `COOKIE_NAME` / `COOKIE_MAX_AGE_S` / `COOKIE_KEY_SALT` | `jfm_s` / 2592000 / `jfm-cookie-v1` |
 | `LOGIN_FAIL_DELAY_MS` | 300 |
 | `DO_INSTANCE_NAME` / `DEFAULT_PORT` | `main` / 8787 |

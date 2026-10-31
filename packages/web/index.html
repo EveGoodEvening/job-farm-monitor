@@ -6,6 +6,20 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#f9f9fb" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0f1012" media="(prefers-color-scheme: dark)" />
+    <script>
+      // Resolve the theme before first paint (no light flash on a dark choice).
+      // Key and values must match THEME_STORAGE_KEY and src/theme.ts; test/theme.test.ts checks this.
+      (function () {
+        var t = null;
+        try {
+          t = localStorage.getItem('jfm.theme');
+        } catch (e) {}
+        if (t !== 'light' && t !== 'dark') {
+          t = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.setAttribute('data-theme', t);
+      })();
+    </script>
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />

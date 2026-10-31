@@ -6,6 +6,7 @@ import { setLang, t } from '../i18n.ts';
 import { authed, conn, hostFilter, lang, lastOkAt, showEnded, tick } from '../state.ts';
 import { formatDuration } from '../time.ts';
 import { Logo, SignOut, StatusIcon } from './Icons.tsx';
+import { ThemeToggle } from './ThemeToggle.tsx';
 
 interface Props {
   counts: Counts;
@@ -42,6 +43,7 @@ export function TopBar({ counts, list }: Props) {
           <span class={`conn-label conn-label-${c}`} title={connTitle}>
             {t(`conn.${c}`)}
           </span>
+          <ThemeToggle />
           <button
             type="button"
             class="ghost"

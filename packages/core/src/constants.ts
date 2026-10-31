@@ -110,6 +110,8 @@ export const POLL_INTERVAL_MS = 3 * SECOND_MS;
 export const RELATIVE_TICK_MS = 10 * SECOND_MS;
 /** localStorage key for the UI language. */
 export const LANG_STORAGE_KEY = 'jfm.lang';
+/** localStorage key for the color theme ("light" | "dark"; absent = follow the system). */
+export const THEME_STORAGE_KEY = 'jfm.theme';
 
 // Auth ----------------------------------------------------------------------
 /** Read-session cookie name. */
